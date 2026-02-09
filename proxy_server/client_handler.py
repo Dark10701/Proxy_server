@@ -24,6 +24,11 @@ def handle_client(client_socket):
         start_time = time.monotonic()
         response_bytes = 0
 
+        # CONNECT TO REAL DESTINATION (use Host header-derived target only)
+        upstream_host = host
+        upstream_port = port
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.connect((upstream_host, upstream_port))
         # CONNECT TO REAL DESTINATION
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.connect((host, port))

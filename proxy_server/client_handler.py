@@ -5,6 +5,7 @@ from http_parser import parse_http_request
 from metrics import MetricsLogger
 
 METRICS_LOGGER = MetricsLogger("logs/metrics.csv")
+
 from http_parser import parse_http_request
 import socket
 

@@ -32,6 +32,20 @@ class MetricsLogger:
                         "response_bytes",
                     ]
                 )
+        with self.metrics_path.open("w", newline="") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(
+                [
+                    "timestamp",
+                    "client_ip",
+                    "method",
+                    "url",
+                    "host",
+                    "latency_ms",
+                    "request_bytes",
+                    "response_bytes",
+                ]
+            )
 
     def log(
         self,
@@ -53,3 +67,25 @@ class MetricsLogger:
                         response_bytes,
                     ]
                 )
+        method: str,
+        url: str,
+        host: str,
+        latency_ms: int,
+        request_bytes: int,
+        response_bytes: int,
+    ) -> None:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        with self.metrics_path.open("a", newline="") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(
+                [
+                    timestamp,
+                    client_ip,
+                    method,
+                    url,
+                    host,
+                    latency_ms,
+                    request_bytes,
+                    response_bytes,
+                ]
+            )

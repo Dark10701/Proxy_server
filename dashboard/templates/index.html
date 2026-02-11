@@ -96,82 +96,115 @@
         Chart.defaults.color = '#7f8c8d';
 
         // Data from Flask
-        const reqLabels = {{ stats.requests_time_labels | tojson }};
-        const reqData = {{ stats.requests_time_data | tojson }};
-        const latData = {{ stats.latency_time_data | tojson }};
+        const reqLabels = {{ stats.requests_time_labels | tojson | safe }};
+        const reqData = {{ stats.requests_time_data | tojson | safe }};
+        const latData = {{ stats.latency_time_data | tojson | safe }};
 
-        const domainLabels = {{ stats.top_domains_labels | tojson }};
-        const domainData = {{ stats.top_domains_data | tojson }};
+        const domainLabels = {{ stats.top_domains_labels | tojson | safe }};
+        const domainData = {{ stats.top_domains_data | tojson | safe }};
 
-        const bwLabels = {{ stats.bw_domains_labels | tojson }};
-        const bwData = {{ stats.bw_domains_data | tojson }};
+        const bwLabels = {{ stats.bw_domains_labels | tojson | safe }};
+        const bwData = {{ stats.bw_domains_data | tojson | safe }};
+
+        function showNoDataMessage(canvasId) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas || !canvas.parentElement) return;
+
+            canvas.style.display = 'none';
+            const msg = document.createElement('div');
+            msg.textContent = 'No data available yet';
+            msg.style.textAlign = 'center';
+            msg.style.color = '#95a5a6';
+            msg.style.padding = '2rem 0';
+            canvas.parentElement.appendChild(msg);
+        }
+
+        function hasData(labels, data) {
+            return Array.isArray(labels) && Array.isArray(data) && labels.length > 0 && data.length > 0;
+        }
 
         // 1. Requests Chart
-        new Chart(document.getElementById('requestsChart'), {
-            type: 'line',
-            data: {
-                labels: reqLabels,
-                datasets: [{
-                    label: 'Requests',
-                    data: reqData,
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
+        if (hasData(reqLabels, reqData)) {
+            new Chart(document.getElementById('requestsChart'), {
+                type: 'line',
+                data: {
+                    labels: reqLabels,
+                    datasets: [{
+                        label: 'Requests',
+                        data: reqData,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        } else {
+            showNoDataMessage('requestsChart');
+        }
 
         // 2. Latency Chart
-        new Chart(document.getElementById('latencyChart'), {
-            type: 'line',
-            data: {
-                labels: reqLabels,
-                datasets: [{
-                    label: 'Latency (ms)',
-                    data: latData,
-                    borderColor: '#e74c3c',
-                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
+        if (hasData(reqLabels, latData)) {
+            new Chart(document.getElementById('latencyChart'), {
+                type: 'line',
+                data: {
+                    labels: reqLabels,
+                    datasets: [{
+                        label: 'Latency (ms)',
+                        data: latData,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        } else {
+            showNoDataMessage('latencyChart');
+        }
 
         // 3. Top Domains (Pie)
-        new Chart(document.getElementById('domainsChart'), {
-            type: 'doughnut',
-            data: {
-                labels: domainLabels,
-                datasets: [{
-                    data: domainData,
-                    backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
-                    borderWidth: 0
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
+        if (hasData(domainLabels, domainData)) {
+            new Chart(document.getElementById('domainsChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: domainLabels,
+                    datasets: [{
+                        data: domainData,
+                        backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
+                        borderWidth: 0
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        } else {
+            showNoDataMessage('domainsChart');
+        }
 
         // 4. Bandwidth (Bar)
-        new Chart(document.getElementById('bandwidthChart'), {
-            type: 'bar',
-            data: {
-                labels: bwLabels,
-                datasets: [{
-                    label: 'Bandwidth (MB)',
-                    data: bwData,
-                    backgroundColor: '#1abc9c',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true } }
-            }
-        });
+        if (hasData(bwLabels, bwData)) {
+            new Chart(document.getElementById('bandwidthChart'), {
+                type: 'bar',
+                data: {
+                    labels: bwLabels,
+                    datasets: [{
+                        label: 'Bandwidth (MB)',
+                        data: bwData,
+                        backgroundColor: '#1abc9c',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        } else {
+            showNoDataMessage('bandwidthChart');
+        }
     </script>
 </body>
 </html>

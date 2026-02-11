@@ -3,6 +3,7 @@
 import socket
 import time
 from typing import Dict, Tuple
+from urllib.parse import urlsplit
 
 from filter_engine import FilterEngine
 from http_parser import (
@@ -58,6 +59,14 @@ class ClientHandler:
                 )
                 self._send_forbidden(target_host)
                 return
+
+            # Convert absolute-form request line to origin-form.
+            # Example: "GET http://neverssl.com/ HTTP/1.1" -> "GET / HTTP/1.1"
+            if path.lower().startswith("http://") or path.lower().startswith("https://"):
+                parsed = urlsplit(path)
+                path = parsed.path or "/"
+                if parsed.query:
+                    path = f"{path}?{parsed.query}"
 
             forward_bytes = build_forward_request(
                 method=method,

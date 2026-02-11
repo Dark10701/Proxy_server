@@ -74,10 +74,21 @@ def calculate_stats(data):
     bandwidth_per_domain = defaultdict(int)
 
     for row in data:
-        try:
-            ts_str = row.get('timestamp', '')
-            if ts_str:
-                dt = datetime.strptime(ts_str.strip(), "%d-%m-%Y  %H:%M:%S")
+        # 1. Timestamp & Request Count
+        minute_key = None
+        ts_str = row.get('timestamp', '')
+        if ts_str:
+            try:
+                # Try format: "DD-MM-YYYY  HH:MM:SS" (two spaces)
+                dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
+            except ValueError:
+                try:
+                    # Fallback to standard: "YYYY-MM-DD HH:MM:SS"
+                    dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    dt = None
+
+            if dt:
                 minute_key = dt.strftime("%H:%M")
                 req_per_min[minute_key] += 1
 

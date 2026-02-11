@@ -61,23 +61,34 @@ def calculate_stats(data):
 
     total_requests = len(data)
     # Blocked requests are not logged in metrics.csv currently
-    blocked_requests = 0
-
+    blocked_requests = 0 
+    
     latencies = []
     bandwidth = 0
     clients = set()
     domains = []
-
+    
     # Time series data
     req_per_min = defaultdict(int)
     latency_per_min = defaultdict(list)
     bandwidth_per_domain = defaultdict(int)
-
+    
     for row in data:
-        try:
-            ts_str = row.get('timestamp', '')
-            if ts_str:
-                dt = datetime.strptime(ts_str.strip(), "%d-%m-%Y  %H:%M:%S")
+        # 1. Timestamp & Request Count
+        minute_key = None
+        ts_str = row.get('timestamp', '')
+        if ts_str:
+            try:
+                # Try format: "DD-MM-YYYY  HH:MM:SS" (two spaces)
+                dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
+            except ValueError:
+                try:
+                    # Fallback to standard: "YYYY-MM-DD HH:MM:SS"
+                    dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    dt = None
+
+            if dt:
                 minute_key = dt.strftime("%H:%M")
                 req_per_min[minute_key] += 1
 
@@ -98,7 +109,7 @@ def calculate_stats(data):
             if bw_str:
                 b = int(bw_str)
                 bandwidth += b
-
+                
                 # Bandwidth per domain
                 h = row.get('host', '')
                 if h:
@@ -117,16 +128,16 @@ def calculate_stats(data):
             domains.append(host)
 
     avg_latency = statistics.mean(latencies) if latencies else 0
-
+    
     # Top domains
     domain_counts = Counter(domains)
     top_domains = domain_counts.most_common(5)
-
+            
     # Format time series for charts
     sorted_mins = sorted(req_per_min.keys())
     requests_time_labels = sorted_mins
     requests_time_data = [req_per_min[k] for k in sorted_mins]
-
+    
     latency_time_data = []
     for k in sorted_mins:
         lats = latency_per_min[k]

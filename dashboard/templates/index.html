@@ -95,19 +95,36 @@
         Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
         Chart.defaults.color = '#7f8c8d';
 
-        // Data from Flask
-        const reqLabels = {{ stats.requests_time_labels | tojson }};
-        const reqData = {{ stats.requests_time_data | tojson }};
-        const latData = {{ stats.latency_time_data | tojson }};
+        // Data from Flask with safe fallbacks
+        const reqLabels = {{ stats.requests_time_labels | tojson | default('[]') }};
+        const reqData = {{ stats.requests_time_data | tojson | default('[]') }};
+        const latData = {{ stats.latency_time_data | tojson | default('[]') }};
 
-        const domainLabels = {{ stats.top_domains_labels | tojson }};
-        const domainData = {{ stats.top_domains_data | tojson }};
+        const domainLabels = {{ stats.top_domains_labels | tojson | default('[]') }};
+        const domainData = {{ stats.top_domains_data | tojson | default('[]') }};
 
-        const bwLabels = {{ stats.bw_domains_labels | tojson }};
-        const bwData = {{ stats.bw_domains_data | tojson }};
+        const bwLabels = {{ stats.bw_domains_labels | tojson | default('[]') }};
+        const bwData = {{ stats.bw_domains_data | tojson | default('[]') }};
+
+        function renderChartOrMessage(canvasId, hasData, chartConfig) {
+            const canvas = document.getElementById(canvasId);
+            if (!hasData) {
+                const parent = canvas.parentElement;
+                canvas.style.display = 'none';
+                const msg = document.createElement('div');
+                msg.textContent = 'No data yet';
+                msg.style.color = '#95a5a6';
+                msg.style.textAlign = 'center';
+                msg.style.padding = '2rem';
+                msg.style.fontSize = '0.9rem';
+                parent.appendChild(msg);
+            } else {
+                new Chart(canvas, chartConfig);
+            }
+        }
 
         // 1. Requests Chart
-        new Chart(document.getElementById('requestsChart'), {
+        renderChartOrMessage('requestsChart', reqData && reqData.length > 0, {
             type: 'line',
             data: {
                 labels: reqLabels,
@@ -124,7 +141,7 @@
         });
 
         // 2. Latency Chart
-        new Chart(document.getElementById('latencyChart'), {
+        renderChartOrMessage('latencyChart', latData && latData.length > 0, {
             type: 'line',
             data: {
                 labels: reqLabels,
@@ -141,7 +158,7 @@
         });
 
         // 3. Top Domains (Pie)
-        new Chart(document.getElementById('domainsChart'), {
+        renderChartOrMessage('domainsChart', domainData && domainData.length > 0, {
             type: 'doughnut',
             data: {
                 labels: domainLabels,
@@ -155,7 +172,7 @@
         });
 
         // 4. Bandwidth (Bar)
-        new Chart(document.getElementById('bandwidthChart'), {
+        renderChartOrMessage('bandwidthChart', bwData && bwData.length > 0, {
             type: 'bar',
             data: {
                 labels: bwLabels,

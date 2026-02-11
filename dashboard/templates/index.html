@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxy Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f9; color: #333; }
+        header { background-color: #2c3e50; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        h1 { margin: 0; font-size: 1.5rem; }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+
+        /* Summary Cards */
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+        .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+        .card h3 { margin: 0 0 0.5rem 0; font-size: 0.9rem; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
+        .card .value { font-size: 2rem; font-weight: bold; color: #2c3e50; }
+        .card .unit { font-size: 0.9rem; color: #95a5a6; }
+
+        /* Charts Grid */
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; }
+        .chart-container { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .chart-container h2 { margin-top: 0; font-size: 1.1rem; color: #34495e; border-bottom: 1px solid #ecf0f1; padding-bottom: 0.5rem; margin-bottom: 1rem; }
+
+        canvas { width: 100% !important; height: 300px !important; }
+
+        @media (max-width: 768px) {
+            .charts-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Proxy Analytics</h1>
+        <div style="font-size: 0.9rem;">Auto-refreshing every 30s</div>
+    </header>
+
+    <div class="container">
+        <!-- Summary Stats -->
+        <div class="summary-grid">
+            <div class="card">
+                <h3>Total Requests</h3>
+                <div class="value">{{ stats.total_requests }}</div>
+            </div>
+            <div class="card">
+                <h3>Avg Latency</h3>
+                <div class="value">{{ stats.avg_latency }}<span class="unit">ms</span></div>
+            </div>
+            <div class="card">
+                <h3>Total Bandwidth</h3>
+                <div class="value">{{ stats.total_bandwidth }}<span class="unit">MB</span></div>
+            </div>
+            <div class="card">
+                <h3>Unique Clients</h3>
+                <div class="value">{{ stats.unique_clients }}</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <!-- Requests Over Time -->
+            <div class="chart-container">
+                <h2>Requests per Minute</h2>
+                <canvas id="requestsChart"></canvas>
+            </div>
+
+            <!-- Latency Over Time -->
+            <div class="chart-container">
+                <h2>Avg Latency per Minute</h2>
+                <canvas id="latencyChart"></canvas>
+            </div>
+
+            <!-- Top Domains -->
+            <div class="chart-container">
+                <h2>Top Requested Domains</h2>
+                <canvas id="domainsChart"></canvas>
+            </div>
+
+            <!-- Bandwidth per Domain -->
+            <div class="chart-container">
+                <h2>Bandwidth per Domain (Top 5)</h2>
+                <canvas id="bandwidthChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh
+        setTimeout(() => {
+            window.location.reload();
+        }, 30000);
+
+        // Chart.js Defaults
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.color = '#7f8c8d';
+
+        // Data from Flask
+        const reqLabels = {{ stats.requests_time_labels | tojson }};
+        const reqData = {{ stats.requests_time_data | tojson }};
+        const latData = {{ stats.latency_time_data | tojson }};
+
+        const domainLabels = {{ stats.top_domains_labels | tojson }};
+        const domainData = {{ stats.top_domains_data | tojson }};
+
+        const bwLabels = {{ stats.bw_domains_labels | tojson }};
+        const bwData = {{ stats.bw_domains_data | tojson }};
+
+        // 1. Requests Chart
+        new Chart(document.getElementById('requestsChart'), {
+            type: 'line',
+            data: {
+                labels: reqLabels,
+                datasets: [{
+                    label: 'Requests',
+                    data: reqData,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 2. Latency Chart
+        new Chart(document.getElementById('latencyChart'), {
+            type: 'line',
+            data: {
+                labels: reqLabels,
+                datasets: [{
+                    label: 'Latency (ms)',
+                    data: latData,
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 3. Top Domains (Pie)
+        new Chart(document.getElementById('domainsChart'), {
+            type: 'doughnut',
+            data: {
+                labels: domainLabels,
+                datasets: [{
+                    data: domainData,
+                    backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
+                    borderWidth: 0
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 4. Bandwidth (Bar)
+        new Chart(document.getElementById('bandwidthChart'), {
+            type: 'bar',
+            data: {
+                labels: bwLabels,
+                datasets: [{
+                    label: 'Bandwidth (MB)',
+                    data: bwData,
+                    backgroundColor: '#1abc9c',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    </script>
+</body>
+</html>

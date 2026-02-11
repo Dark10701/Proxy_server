@@ -64,6 +64,7 @@ class ClientHandler:
                     url,
                 )
                 self._send_forbidden(target_host)
+                self._log_blocked_request(method=method, url=url, host=target_host)
                 return
 
             # Convert absolute-form request line to origin-form.
@@ -171,6 +172,54 @@ class ClientHandler:
             latency_ms=latency_ms,
             request_bytes=request_size,
             response_bytes=response_size,
+            blocked=0,
+        )
+
+    def _handle_connect(self, request_bytes: bytes, method: str, url: str) -> None:
+        """Handle HTTPS tunneling using HTTP CONNECT."""
+        target_host, target_port = self._parse_connect_target(url)
+        if not target_host or target_port <= 0:
+            self._send_bad_request()
+            return
+
+        if self.filter_engine.is_blocked(target_host, url):
+            self.logger.info(
+                "Blocked request from %s to %s",
+                self.client_address[0],
+                url,
+            )
+            self._send_forbidden(target_host)
+            self._log_blocked_request(method=method, url=url, host=target_host)
+            return
+
+        start_time = time.time()
+        request_size = len(request_bytes)
+        response_size = 0
+
+        try:
+            with socket.create_connection((target_host, target_port), timeout=10) as upstream_socket:
+                self.client_socket.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                self.logger.info(
+                    "Established CONNECT tunnel to %s:%s",
+                    target_host,
+                    target_port,
+                )
+                response_size = self._tunnel_bidirectional(upstream_socket)
+        except Exception as exc:
+            self.logger.error("CONNECT upstream error for %s:%s: %s", target_host, target_port, exc)
+            self._send_bad_gateway()
+            return
+
+        latency_ms = int((time.time() - start_time) * 1000)
+        self.metrics_logger.log(
+            client_ip=self.client_address[0],
+            method=method,
+            url=url,
+            host=target_host,
+            latency_ms=latency_ms,
+            request_bytes=request_size,
+            response_bytes=response_size,
+            blocked=0,
         )
 
     def _handle_connect(self, request_bytes: bytes, method: str, url: str) -> None:

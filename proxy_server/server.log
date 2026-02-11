@@ -1,4 +1,0 @@
-2026-02-11 07:47:37 - INFO - Proxy server listening on 0.0.0.0:8080
-2026-02-11 07:47:53 - INFO - Blocked request from 127.0.0.1 to http://example.com/
-2026-02-11 07:47:53 - INFO - Forwarded GET request to google.com:80
-2026-02-11 07:47:53 - INFO - Forwarded GET request to www.python.org:80

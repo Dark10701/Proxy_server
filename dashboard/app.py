@@ -76,7 +76,7 @@ def calculate_stats(data):
         try:
             ts_str = row.get('timestamp', '')
             if ts_str:
-                dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                dt = datetime.strptime(ts_str.strip(), "%d-%m-%Y  %H:%M:%S")
                 minute_key = dt.strftime("%H:%M")
                 req_per_min[minute_key] += 1
 

@@ -71,50 +71,67 @@ def calculate_stats(data):
     # Time series data
     req_per_min = defaultdict(int)
     latency_per_min = defaultdict(list)
+    bandwidth_per_domain = defaultdict(int)
 
     for row in data:
-        try:
-            ts_str = row.get('timestamp', '')
-            if ts_str:
-                dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+        # 1. Timestamp & Request Count
+        minute_key = None
+        ts_str = row.get('timestamp', '')
+        if ts_str:
+            try:
+                # Try format: "DD-MM-YYYY  HH:MM:SS" (two spaces)
+                dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
+            except ValueError:
+                try:
+                    # Fallback to standard: "YYYY-MM-DD HH:MM:SS"
+                    dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    dt = None
+
+            if dt:
                 minute_key = dt.strftime("%H:%M")
                 req_per_min[minute_key] += 1
 
-            lat = int(row.get('latency_ms', 0))
-            latencies.append(lat)
-            if ts_str:
-                latency_per_min[minute_key].append(lat)
-
-            resp_bytes = int(row.get('response_bytes', 0))
-            bandwidth += resp_bytes
-
-            client = row.get('client_ip', '')
-            if client:
-                clients.add(client)
-
-            host = row.get('host', '')
-            if host:
-                domains.append(host)
-
+        # 2. Latency
+        try:
+            lat_str = row.get('latency_ms', '')
+            if lat_str:
+                lat = int(lat_str)
+                latencies.append(lat)
+                if minute_key:
+                    latency_per_min[minute_key].append(lat)
         except ValueError:
-            continue
+            pass
+
+        # 3. Bandwidth
+        try:
+            bw_str = row.get('response_bytes', '')
+            if bw_str:
+                b = int(bw_str)
+                bandwidth += b
+
+                # Bandwidth per domain
+                h = row.get('host', '')
+                if h:
+                    bandwidth_per_domain[h] += b
+        except ValueError:
+            pass
+
+        # 4. Client
+        client = row.get('client_ip', '')
+        if client:
+            clients.add(client)
+
+        # 5. Host
+        host = row.get('host', '')
+        if host:
+            domains.append(host)
 
     avg_latency = statistics.mean(latencies) if latencies else 0
 
     # Top domains
     domain_counts = Counter(domains)
     top_domains = domain_counts.most_common(5)
-
-    # Bandwidth per domain (approximate)
-    bandwidth_per_domain = defaultdict(int)
-    for row in data:
-        try:
-            h = row.get('host', '')
-            b = int(row.get('response_bytes', 0))
-            if h:
-                bandwidth_per_domain[h] += b
-        except:
-            pass
 
     # Format time series for charts
     sorted_mins = sorted(req_per_min.keys())

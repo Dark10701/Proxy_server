@@ -1,5 +1,6 @@
 """Handle a single client connection and proxy HTTP requests."""
 
+import select
 import socket
 import time
 from typing import Dict, Tuple
@@ -46,6 +47,11 @@ class ClientHandler:
                 return
 
             method, url, version = request_line
+
+            if method.upper() == "CONNECT":
+                self._handle_connect(request_data, method, url)
+                return
+
             target_host, target_port, path = parse_target_from_request(url, headers)
             if not target_host:
                 self._send_bad_request()
@@ -58,6 +64,7 @@ class ClientHandler:
                     url,
                 )
                 self._send_forbidden(target_host)
+                self._log_blocked_request(method=method, url=url, host=target_host)
                 return
 
             # Convert absolute-form request line to origin-form.
@@ -165,7 +172,117 @@ class ClientHandler:
             latency_ms=latency_ms,
             request_bytes=request_size,
             response_bytes=response_size,
+            blocked=0,
         )
+
+    def _handle_connect(self, request_bytes: bytes, method: str, url: str) -> None:
+        """Handle HTTPS tunneling using HTTP CONNECT."""
+        target_host, target_port = self._parse_connect_target(url)
+        if not target_host or target_port <= 0:
+            self._send_bad_request()
+            return
+
+        if self.filter_engine.is_blocked(target_host, url):
+            self.logger.info(
+                "Blocked request from %s to %s",
+                self.client_address[0],
+                url,
+            )
+            self._send_forbidden(target_host)
+            self._log_blocked_request(method=method, url=url, host=target_host)
+            return
+
+        start_time = time.time()
+        request_size = len(request_bytes)
+        response_size = 0
+
+        try:
+            with socket.create_connection((target_host, target_port), timeout=10) as upstream_socket:
+                self.client_socket.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                self.logger.info(
+                    "Established CONNECT tunnel to %s:%s",
+                    target_host,
+                    target_port,
+                )
+                response_size = self._tunnel_bidirectional(upstream_socket)
+        except Exception as exc:
+            self.logger.error("CONNECT upstream error for %s:%s: %s", target_host, target_port, exc)
+            self._send_bad_gateway()
+            return
+
+        latency_ms = int((time.time() - start_time) * 1000)
+        self.metrics_logger.log(
+            client_ip=self.client_address[0],
+            method=method,
+            url=url,
+            host=target_host,
+            latency_ms=latency_ms,
+            request_bytes=request_size,
+            response_bytes=response_size,
+            blocked=0,
+        )
+
+    def _log_blocked_request(self, method: str, url: str, host: str) -> None:
+        """Persist blocked request events in metrics."""
+        self.metrics_logger.log(
+            client_ip=self.client_address[0],
+            method=method,
+            url=url,
+            host=host,
+            latency_ms=0,
+            request_bytes=0,
+            response_bytes=0,
+            blocked=1,
+        )
+
+    def _parse_connect_target(self, authority: str) -> Tuple[str, int]:
+        """Parse CONNECT authority-form target (host:port)."""
+        value = (authority or "").strip()
+        if not value:
+            return "", 0
+
+        # IPv6 authority form: [::1]:443
+        if value.startswith("["):
+            bracket_end = value.find("]")
+            if bracket_end == -1:
+                return "", 0
+            host = value[1:bracket_end]
+            remainder = value[bracket_end + 1 :]
+            if not remainder.startswith(":"):
+                return "", 0
+            port_str = remainder[1:]
+        else:
+            if ":" not in value:
+                return "", 0
+            host, port_str = value.rsplit(":", 1)
+
+        try:
+            port = int(port_str)
+        except ValueError:
+            return "", 0
+
+        return host.strip(), port
+
+    def _tunnel_bidirectional(self, upstream_socket: socket.socket) -> int:
+        """Tunnel bytes between client and upstream until one side closes."""
+        tunneled_from_upstream = 0
+        sockets = [self.client_socket, upstream_socket]
+        self.client_socket.settimeout(None)
+        upstream_socket.settimeout(None)
+
+        while True:
+            readable, _, _ = select.select(sockets, [], [], 30)
+            if not readable:
+                continue
+
+            for src in readable:
+                dst = upstream_socket if src is self.client_socket else self.client_socket
+                data = src.recv(4096)
+                if not data:
+                    return tunneled_from_upstream
+                dst.sendall(data)
+                if src is upstream_socket:
+                    tunneled_from_upstream += len(data)
 
     def _send_forbidden(self, host: str) -> None:
         response = (

@@ -74,56 +74,47 @@ def calculate_stats(data):
     bandwidth_per_domain = defaultdict(int)
     
     for row in data:
-        # 1. Timestamp & Request Count
         minute_key = None
-        ts_str = row.get('timestamp', '')
+        ts_str = (row.get('timestamp') or '').strip()
         if ts_str:
             try:
-                # Try format: "DD-MM-YYYY  HH:MM:SS" (two spaces)
                 dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
-            except ValueError:
-                try:
-                    # Fallback to standard: "YYYY-MM-DD HH:MM:SS"
-                    dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    dt = None
-
-            if dt:
-                minute_key = dt.strftime("%H:%M")
+                minute_key = dt.strftime("%d-%m-%Y %H:%M")
                 req_per_min[minute_key] += 1
+            except ValueError:
+                minute_key = None
 
-        # 2. Latency
+        # Latency
         try:
-            lat_str = row.get('latency_ms', '')
+            lat_str = (row.get('latency_ms') or '').strip()
             if lat_str:
-                lat = int(lat_str)
+                lat = float(lat_str)
                 latencies.append(lat)
                 if minute_key:
                     latency_per_min[minute_key].append(lat)
         except ValueError:
             pass
 
-        # 3. Bandwidth
+        # Bandwidth
         try:
-            bw_str = row.get('response_bytes', '')
+            bw_str = (row.get('response_bytes') or '').strip()
             if bw_str:
-                b = int(bw_str)
+                b = int(float(bw_str))
                 bandwidth += b
                 
-                # Bandwidth per domain
-                h = row.get('host', '')
+                h = (row.get('host') or '').strip()
                 if h:
                     bandwidth_per_domain[h] += b
         except ValueError:
             pass
 
-        # 4. Client
-        client = row.get('client_ip', '')
+        # Client
+        client = (row.get('client_ip') or '').strip()
         if client:
             clients.add(client)
 
-        # 5. Host
-        host = row.get('host', '')
+        # Host
+        host = (row.get('host') or '').strip()
         if host:
             domains.append(host)
 
@@ -134,7 +125,10 @@ def calculate_stats(data):
     top_domains = domain_counts.most_common(5)
             
     # Format time series for charts
-    sorted_mins = sorted(req_per_min.keys())
+    sorted_mins = sorted(
+        req_per_min.keys(),
+        key=lambda m: datetime.strptime(m, "%d-%m-%Y %H:%M")
+    )
     requests_time_labels = sorted_mins
     requests_time_data = [req_per_min[k] for k in sorted_mins]
     

@@ -1,0 +1,7 @@
+timestamp,client_ip,method,url,host,latency_ms,request_bytes,response_bytes
+2026-02-11 08:26:27,127.0.0.1,GET,http://localhost:9090/testpath,localhost,6,104,0
+2026-02-11 08:27:12,127.0.0.1,GET,http://localhost:9091/,localhost,5,96,0
+2026-02-11 08:28:55,127.0.0.1,GET,http://localhost:9092/,localhost,5,96,0
+2026-02-11 08:30:22,127.0.0.1,GET,HTTP://localhost:9094/,localhost,5,80,0
+2026-02-11 08:32:49,127.0.0.1,GET,HTTP://localhost:9095/,localhost,4,59,0
+2026-02-11 08:33:39,127.0.0.1,CONNECT,www.google.com:443,www.google.com,14,108,0

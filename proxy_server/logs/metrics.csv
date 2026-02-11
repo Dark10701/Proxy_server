@@ -1,0 +1,6 @@
+timestamp,client_ip,method,url,host,latency_ms,request_bytes,response_bytes
+11-02-2026  10:00:00,127.0.0.1,GET,http://example.com,example.com,50,100,200
+11-02-2026  10:01:00,127.0.0.2,GET,http://bad-latency.com,bad-latency.com,bad,100,200
+11-02-2026  10:02:00,127.0.0.3,GET,http://bad-bytes.com,bad-bytes.com,50,100,bad
+2026-02-11 10:03:00,127.0.0.4,GET,http://old-format.com,old-format.com,60,100,300
+bad-timestamp,127.0.0.5,GET,http://bad-ts.com,bad-ts.com,70,100,400

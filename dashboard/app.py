@@ -82,12 +82,10 @@ def calculate_stats(data):
     # Blocked requests are not logged in metrics.csv currently
     blocked_requests = 0
 
-    for row in data:
-        try:
-            if int(row.get("blocked", 0)) == 1:
-                blocked_requests += 1
-        except:
-            continue
+	for row in data:
+    	if str(row.get("blocked", "0")).strip() == "1":
+        	blocked_requests += 1
+
     
     latencies = []
     bandwidth = 0
@@ -103,12 +101,18 @@ def calculate_stats(data):
         minute_key = None
         ts_str = (row.get('timestamp') or '').strip()
         if ts_str:
-            try:
-                dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
-                minute_key = dt.strftime("%d-%m-%Y %H:%M")
-                req_per_min[minute_key] += 1
-            except ValueError:
-                minute_key = None
+    		try:
+        		dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
+    		except ValueError:
+        		try:
+            		dt = datetime.strptime(ts_str.replace("  ", " "), "%d-%m-%Y %H:%M:%S")
+        		except ValueError:
+            		dt = None
+
+    		if dt:
+        		minute_key = dt.strftime("%d-%m-%Y %H:%M")
+        		req_per_min[minute_key] += 1
+
 
         # Latency
         try:
@@ -152,9 +156,10 @@ def calculate_stats(data):
 
     # Format time series for charts
     sorted_mins = sorted(
-        req_per_min.keys(),
-        key=lambda m: datetime.strptime(m, "%d-%m-%Y %H:%M")
-    )
+    	req_per_min.keys(),
+    	key=lambda m: datetime.strptime(m, "%d-%m-%Y %H:%M") if m else datetime.min
+	)
+
 
 
     requests_time_labels = sorted_mins
@@ -181,12 +186,11 @@ def calculate_stats(data):
         'latency_time_data': latency_time_data,
         'bw_domains_labels': [d[0] for d in top_bw_domains],
         'bw_domains_data': [round(d[1] / (1024 * 1024), 2) for d in top_bw_domains],
-	'proxy_active': is_proxy_active()
+		'proxy_active': is_proxy_active()
     }
 
     # Emit latest computed stats for live dashboard updates.
     socketio.emit('metrics_update', stats)
-    stats['proxy_active'] = is_proxy_active()
     return stats
 
 

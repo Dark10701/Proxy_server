@@ -7,34 +7,102 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f9; color: #333; }
-        header { background-color: #2c3e50; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        h1 { margin: 0; font-size: 1.5rem; }
-        .container { padding: 2rem; max-width: 1400px; margin: 0 auto; }
-
-        /* Summary Cards */
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
-        .card { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
-        .card h3 { margin: 0 0 0.5rem 0; font-size: 0.9rem; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
-        .card .value { font-size: 2rem; font-weight: bold; color: #2c3e50; }
-        .card .unit { font-size: 0.9rem; color: #95a5a6; }
-
-        /* Charts Grid */
-        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; }
-        .chart-container { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .chart-container h2 { margin-top: 0; font-size: 1.1rem; color: #34495e; border-bottom: 1px solid #ecf0f1; padding-bottom: 0.5rem; margin-bottom: 1rem; }
-
-        canvas { width: 100% !important; height: 300px !important; }
-
-        @media (max-width: 768px) {
-            .charts-grid { grid-template-columns: 1fr; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        header {
+            background-color: #1e293b;
+            color: #f8fafc;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+        }
+        h1 { 
+            margin: 0; 
+            font-size: 1.5rem; 
+        }
+        .container {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .card {
+            background: #1e293b;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            text-align: center;
+            transition: 0.2s ease;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+        }
+        .card h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+        .card .unit {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1.5rem;
+        }
+        .chart-container {
+            background: #1e293b;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .chart-container h2 {
+            margin-top: 0;
+            font-size: 1rem;
+            color: #cbd5e1;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        canvas {
+            width: 100% !important;
+            height: 300px !important;
         }
     </style>
 </head>
 <body>
     <header>
         <h1>Proxy Analytics</h1>
-        <div style="font-size: 0.9rem;">Auto-refreshing every 10s</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <div style="font-size: 0.9rem;">Live Dashboard</div>
+            <div id="proxyStatus" style="display:flex; align-items:center; gap:6px;">
+                <span id="statusDot" style="width:10px;height:10px;border-radius:50%;background-color: {{ 'limegreen' if stats.proxy_active else 'red' }};"></span>
+                <span id="statusText">
+                    {{ 'Proxy Online' if stats.proxy_active else 'Proxy Offline' }}
+                </span>
+            </div>
+        </div>
+
     </header>
 
     <div class="container">
@@ -43,10 +111,6 @@
             <div class="card">
                 <h3>Total Requests</h3>
                 <div class="value" id="totalRequests">{{ stats.total_requests }}</div>
-            </div>
-            <div class="card">
-                <h3>Blocked Requests</h3>
-                <div class="value" id="blockedRequests">{{ stats.blocked_requests }}</div>
             </div>
             <div class="card">
                 <h3>Avg Latency</h3>
@@ -91,113 +155,47 @@
     </div>
 
     <script>
-        // Chart.js Defaults
-        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-        Chart.defaults.color = '#7f8c8d';
+        const socket = io();
+        const initialStats = {{ stats | tojson }};
+        Chart.defaults.color = "#94a3b8";
+        const charts = {};
 
-        // Data from Flask with safe fallbacks
-        const reqLabels = {{ stats.requests_time_labels | tojson | default('[]') }};
-        const reqData = {{ stats.requests_time_data | tojson | default('[]') }};
-        const latData = {{ stats.latency_time_data | tojson | default('[]') }};
+        function updateSummaryCards(data) {
+            document.getElementById("totalRequests").innerText = data.total_requests || 0;
+            document.getElementById("blockedRequests").innerText = data.blocked_requests || 0;
+            document.getElementById("avgLatency").innerText = data.avg_latency || 0;
+            document.getElementById("totalBandwidth").innerText = data.total_bandwidth || 0;
+            document.getElementById("uniqueClients").innerText = data.unique_clients || 0;
+        }
 
-        const domainLabels = {{ stats.top_domains_labels | tojson | default('[]') }};
-        const domainData = {{ stats.top_domains_data | tojson | default('[]') }};
+        function upsertLineChart(key, canvasId, labels, values, label, color) {
+            if (!labels || !values || labels.length === 0) return;
 
-        const bwLabels = {{ stats.bw_domains_labels | tojson | default('[]') }};
-        const bwData = {{ stats.bw_domains_data | tojson | default('[]') }};
-
-        function renderChartOrMessage(canvasId, hasData, chartConfig) {
-            const canvas = document.getElementById(canvasId);
-            if (!hasData) {
-                const parent = canvas.parentElement;
-                canvas.style.display = 'none';
-                const msg = document.createElement('div');
-                msg.textContent = 'No data yet';
-                msg.style.color = '#95a5a6';
-                msg.style.textAlign = 'center';
-                msg.style.padding = '2rem';
-                msg.style.fontSize = '0.9rem';
-                parent.appendChild(msg);
+            if (!charts[key]) {
+                charts[key] = new Chart(document.getElementById(canvasId), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label,
+                            data: values,
+                            borderColor: color,
+                            backgroundColor: color.replace("rgb", "rgba").replace(")", ",0.1)"),
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
             } else {
-                new Chart(canvas, chartConfig);
+                charts[key].data.labels = labels;
+                charts[key].data.datasets[0].data = values;
+                charts[key].update();
             }
         }
 
-        // 1. Requests Chart
-        renderChartOrMessage('requestsChart', reqData && reqData.length > 0, {
-            type: 'line',
-            data: {
-                labels: reqLabels,
-                datasets: [{
-                    label: 'Requests',
-                    data: reqData,
-                    borderColor: '#3498db',
-                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-
-        // 2. Latency Chart
-        renderChartOrMessage('latencyChart', latData && latData.length > 0, {
-            type: 'line',
-            data: {
-                labels: reqLabels,
-                datasets: [{
-                    label: 'Latency (ms)',
-                    data: latData,
-                    borderColor: '#e74c3c',
-                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-
-        // 3. Top Domains (Pie)
-        renderChartOrMessage('domainsChart', domainData && domainData.length > 0, {
-            type: 'doughnut',
-            data: {
-                labels: domainLabels,
-                datasets: [{
-                    data: domainData,
-                    backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
-                    borderWidth: 0
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-
-        // 4. Bandwidth (Bar)
-        renderChartOrMessage('bandwidthChart', bwData && bwData.length > 0, {
-            type: 'bar',
-            data: {
-                labels: bwLabels,
-                datasets: [{
-                    label: 'Bandwidth (MB)',
-                    data: bwData,
-                    backgroundColor: '#1abc9c',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { y: { beginAtZero: true } }
-            }
-
-            charts[chartKey].data.labels = labels;
-            charts[chartKey].data.datasets[0].data = values;
-            charts[chartKey].update();
-        }
-
-        function upsertDomainsChart(labels, values) {
-            const ready = hasData(labels, values);
-            setNoDataState('domainsChart', !ready);
-            if (!ready) return;
+        function upsertPieChart(labels, values) {
+            if (!labels || labels.length === 0) return;
 
             if (!charts.domains) {
                 charts.domains = new Chart(document.getElementById('domainsChart'), {
@@ -206,24 +204,20 @@
                         labels,
                         datasets: [{
                             data: values,
-                            backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
-                            borderWidth: 0
+                            backgroundColor: ['#22d3ee', '#38bdf8', '#818cf8', '#f472b6', '#facc15']
                         }]
                     },
                     options: { responsive: true, maintainAspectRatio: false }
                 });
-                return;
+            } else {
+                charts.domains.data.labels = labels;
+                charts.domains.data.datasets[0].data = values;
+                charts.domains.update();
             }
-
-            charts.domains.data.labels = labels;
-            charts.domains.data.datasets[0].data = values;
-            charts.domains.update();
         }
 
-        function upsertBandwidthChart(labels, values) {
-            const ready = hasData(labels, values);
-            setNoDataState('bandwidthChart', !ready);
-            if (!ready) return;
+        function upsertBarChart(labels, values) {
+            if (!labels || labels.length === 0) return;
 
             if (!charts.bandwidth) {
                 charts.bandwidth = new Chart(document.getElementById('bandwidthChart'), {
@@ -231,54 +225,70 @@
                     data: {
                         labels,
                         datasets: [{
-                            label: 'Bandwidth (MB)',
+                            label: "Bandwidth (MB)",
                             data: values,
-                            backgroundColor: '#1abc9c',
-                            borderRadius: 4
+                            backgroundColor: "#38bdf8"
                         }]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: { y: { beginAtZero: true } }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false }
                 });
-                return;
+            } else {
+                charts.bandwidth.data.labels = labels;
+                charts.bandwidth.data.datasets[0].data = values;
+                charts.bandwidth.update();
             }
-
-            charts.bandwidth.data.labels = labels;
-            charts.bandwidth.data.datasets[0].data = values;
-            charts.bandwidth.update();
         }
 
         function renderMetrics(data) {
             updateSummaryCards(data);
-            upsertLineChart(
-                'requests',
-                'requestsChart',
-                data.requests_time_labels || [],
-                data.requests_time_data || [],
-                'Requests',
-                'rgb(52, 152, 219)'
-            );
-            upsertLineChart(
-                'latency',
-                'latencyChart',
-                data.requests_time_labels || [],
-                data.latency_time_data || [],
-                'Latency (ms)',
-                'rgb(231, 76, 60)'
-            );
-            upsertDomainsChart(data.top_domains_labels || [], data.top_domains_data || []);
-            upsertBandwidthChart(data.bw_domains_labels || [], data.bw_domains_data || []);
+            // Update proxy status
+            if (data.proxy_active !== undefined) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+
+            if (data.proxy_active) {
+                dot.style.backgroundColor = 'limegreen';
+                text.textContent = 'Proxy Online';
+            } else {
+                dot.style.backgroundColor = 'red';
+                text.textContent = 'Proxy Offline';
+            }
         }
 
-        // Render initial server-side state.
+
+            upsertLineChart(
+                "requests",
+                "requestsChart",
+                data.requests_time_labels || [],
+                data.requests_time_data || [],
+                "Requests",
+                "rgb(56,189,248)"
+            );
+
+            upsertLineChart(
+                "latency",
+                "latencyChart",
+                data.requests_time_labels || [],
+                data.latency_time_data || [],
+                "Latency (ms)",
+                "rgb(248,113,113)"
+            );
+
+            upsertPieChart(
+                data.top_domains_labels || [],
+                data.top_domains_data || []
+            );
+
+            upsertBarChart(
+                data.bw_domains_labels || [],
+                data.bw_domains_data || []
+            );
+        }
+
         renderMetrics(initialStats);
 
-        // Live updates from Flask-SocketIO.
-        socket.on('metrics_update', function (data) {
-            renderMetrics(data || {});
+        socket.on("metrics_update", function(data) {
+            renderMetrics(data);
         });
     </script>
 </body>

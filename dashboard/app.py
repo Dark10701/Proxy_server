@@ -1,11 +1,19 @@
 from flask import Flask, render_template
+from flask_socketio import SocketIO
 import csv
 import os
 from collections import Counter, defaultdict
 from datetime import datetime
 import statistics
+import threading
+import time
 
 app = Flask(__name__)
+socketio = SocketIO(app)
+
+_emitter_thread_started = False
+_emitter_lock = threading.Lock()
+
 
 # Helper to locate metrics file
 def get_metrics_path():
@@ -26,6 +34,7 @@ def get_metrics_path():
         return path
     return None
 
+
 def parse_metrics():
     path = get_metrics_path()
     if not path or not os.path.exists(path):
@@ -42,9 +51,10 @@ def parse_metrics():
         return None
     return data
 
+
 def calculate_stats(data):
     if not data:
-        return {
+        stats = {
             'total_requests': 0,
             'blocked_requests': 0,
             'avg_latency': 0,
@@ -58,6 +68,8 @@ def calculate_stats(data):
             'bw_domains_labels': [],
             'bw_domains_data': []
         }
+        socketio.emit('metrics_update', stats)
+        return stats
 
     total_requests = len(data)
     # Blocked requests are not logged in metrics.csv currently
@@ -74,12 +86,13 @@ def calculate_stats(data):
     bandwidth = 0
     clients = set()
     domains = []
-    
+    blocked_requests = 0
+
     # Time series data
     req_per_min = defaultdict(int)
     latency_per_min = defaultdict(list)
     bandwidth_per_domain = defaultdict(int)
-    
+
     for row in data:
         minute_key = None
         ts_str = (row.get('timestamp') or '').strip()
@@ -126,11 +139,11 @@ def calculate_stats(data):
             domains.append(host)
 
     avg_latency = statistics.mean(latencies) if latencies else 0
-    
+
     # Top domains
     domain_counts = Counter(domains)
     top_domains = domain_counts.most_common(5)
-            
+
     # Format time series for charts
     sorted_mins = sorted(
         req_per_min.keys(),
@@ -138,7 +151,7 @@ def calculate_stats(data):
     )
     requests_time_labels = sorted_mins
     requests_time_data = [req_per_min[k] for k in sorted_mins]
-    
+
     latency_time_data = []
     for k in sorted_mins:
         lats = latency_per_min[k]
@@ -147,11 +160,11 @@ def calculate_stats(data):
     # Top 5 bandwidth domains
     top_bw_domains = sorted(bandwidth_per_domain.items(), key=lambda x: x[1], reverse=True)[:5]
 
-    return {
+    stats = {
         'total_requests': total_requests,
         'blocked_requests': blocked_requests,
         'avg_latency': round(avg_latency, 2),
-        'total_bandwidth': round(bandwidth / (1024*1024), 2), # MB
+        'total_bandwidth': round(bandwidth / (1024 * 1024), 2),  # MB
         'unique_clients': len(clients),
         'top_domains_labels': [d[0] for d in top_domains],
         'top_domains_data': [d[1] for d in top_domains],
@@ -159,14 +172,34 @@ def calculate_stats(data):
         'requests_time_data': requests_time_data,
         'latency_time_data': latency_time_data,
         'bw_domains_labels': [d[0] for d in top_bw_domains],
-        'bw_domains_data': [round(d[1]/(1024*1024), 2) for d in top_bw_domains]
+        'bw_domains_data': [round(d[1] / (1024 * 1024), 2) for d in top_bw_domains]
     }
+
+    # Emit latest computed stats for live dashboard updates.
+    socketio.emit('metrics_update', stats)
+    return stats
+
+
+def metrics_emitter_worker():
+    """Background worker that polls metrics and emits dashboard updates every 2 seconds."""
+    while True:
+        data = parse_metrics()
+        calculate_stats(data)
+        socketio.sleep(2)
+
 
 @app.route('/')
 def index():
+    global _emitter_thread_started
+    with _emitter_lock:
+        if not _emitter_thread_started:
+            socketio.start_background_task(metrics_emitter_worker)
+            _emitter_thread_started = True
+
     data = parse_metrics()
     stats = calculate_stats(data)
     return render_template('index.html', stats=stats)
 
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)

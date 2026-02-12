@@ -5,11 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Proxy Analytics Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f4f9; color: #333; }
         header { background-color: #2c3e50; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 1.5rem; }
-        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .container { padding: 2rem; max-width: 1400px; margin: 0 auto; }
 
         /* Summary Cards */
         .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
@@ -41,19 +42,23 @@
         <div class="summary-grid">
             <div class="card">
                 <h3>Total Requests</h3>
-                <div class="value">{{ stats.total_requests }}</div>
+                <div class="value" id="totalRequests">{{ stats.total_requests }}</div>
+            </div>
+            <div class="card">
+                <h3>Blocked Requests</h3>
+                <div class="value" id="blockedRequests">{{ stats.blocked_requests }}</div>
             </div>
             <div class="card">
                 <h3>Avg Latency</h3>
-                <div class="value">{{ stats.avg_latency }}<span class="unit">ms</span></div>
+                <div class="value"><span id="avgLatency">{{ stats.avg_latency }}</span><span class="unit">ms</span></div>
             </div>
             <div class="card">
                 <h3>Total Bandwidth</h3>
-                <div class="value">{{ stats.total_bandwidth }}<span class="unit">MB</span></div>
+                <div class="value"><span id="totalBandwidth">{{ stats.total_bandwidth }}</span><span class="unit">MB</span></div>
             </div>
             <div class="card">
                 <h3>Unique Clients</h3>
-                <div class="value">{{ stats.unique_clients }}</div>
+                <div class="value" id="uniqueClients">{{ stats.unique_clients }}</div>
             </div>
             <div class="card">
                 <h3>Blocked Requests</h3>
@@ -63,25 +68,21 @@
 
         <!-- Charts -->
         <div class="charts-grid">
-            <!-- Requests Over Time -->
             <div class="chart-container">
                 <h2>Requests per Minute</h2>
                 <canvas id="requestsChart"></canvas>
             </div>
 
-            <!-- Latency Over Time -->
             <div class="chart-container">
                 <h2>Avg Latency per Minute</h2>
                 <canvas id="latencyChart"></canvas>
             </div>
 
-            <!-- Top Domains -->
             <div class="chart-container">
                 <h2>Top Requested Domains</h2>
                 <canvas id="domainsChart"></canvas>
             </div>
 
-            <!-- Bandwidth per Domain -->
             <div class="chart-container">
                 <h2>Bandwidth per Domain (Top 5)</h2>
                 <canvas id="bandwidthChart"></canvas>
@@ -192,6 +193,97 @@
                 maintainAspectRatio: false,
                 scales: { y: { beginAtZero: true } }
             }
+
+            charts[chartKey].data.labels = labels;
+            charts[chartKey].data.datasets[0].data = values;
+            charts[chartKey].update();
+        }
+
+        function upsertDomainsChart(labels, values) {
+            const ready = hasData(labels, values);
+            setNoDataState('domainsChart', !ready);
+            if (!ready) return;
+
+            if (!charts.domains) {
+                charts.domains = new Chart(document.getElementById('domainsChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels,
+                        datasets: [{
+                            data: values,
+                            backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+                return;
+            }
+
+            charts.domains.data.labels = labels;
+            charts.domains.data.datasets[0].data = values;
+            charts.domains.update();
+        }
+
+        function upsertBandwidthChart(labels, values) {
+            const ready = hasData(labels, values);
+            setNoDataState('bandwidthChart', !ready);
+            if (!ready) return;
+
+            if (!charts.bandwidth) {
+                charts.bandwidth = new Chart(document.getElementById('bandwidthChart'), {
+                    type: 'bar',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'Bandwidth (MB)',
+                            data: values,
+                            backgroundColor: '#1abc9c',
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+                return;
+            }
+
+            charts.bandwidth.data.labels = labels;
+            charts.bandwidth.data.datasets[0].data = values;
+            charts.bandwidth.update();
+        }
+
+        function renderMetrics(data) {
+            updateSummaryCards(data);
+            upsertLineChart(
+                'requests',
+                'requestsChart',
+                data.requests_time_labels || [],
+                data.requests_time_data || [],
+                'Requests',
+                'rgb(52, 152, 219)'
+            );
+            upsertLineChart(
+                'latency',
+                'latencyChart',
+                data.requests_time_labels || [],
+                data.latency_time_data || [],
+                'Latency (ms)',
+                'rgb(231, 76, 60)'
+            );
+            upsertDomainsChart(data.top_domains_labels || [], data.top_domains_data || []);
+            upsertBandwidthChart(data.bw_domains_labels || [], data.bw_domains_data || []);
+        }
+
+        // Render initial server-side state.
+        renderMetrics(initialStats);
+
+        // Live updates from Flask-SocketIO.
+        socket.on('metrics_update', function (data) {
+            renderMetrics(data || {});
         });
     </script>
 </body>

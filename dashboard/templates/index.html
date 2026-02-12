@@ -157,35 +157,57 @@
     <script>
         const socket = io();
         const initialStats = {{ stats | tojson }};
-        Chart.defaults.color = "#94a3b8";
         const charts = {};
 
+        Chart.defaults.color = "#94a3b8";
+
         function updateSummaryCards(data) {
-            document.getElementById("totalRequests").innerText = data.total_requests || 0;
-            document.getElementById("blockedRequests").innerText = data.blocked_requests || 0;
-            document.getElementById("avgLatency").innerText = data.avg_latency || 0;
-            document.getElementById("totalBandwidth").innerText = data.total_bandwidth || 0;
-            document.getElementById("uniqueClients").innerText = data.unique_clients || 0;
+            const summaryMap = {
+                totalRequests: data.total_requests ?? 0,
+                avgLatency: data.avg_latency ?? 0,
+                totalBandwidth: data.total_bandwidth ?? 0,
+                uniqueClients: data.unique_clients ?? 0,
+                blockedRequests: data.blocked_requests ?? 0,
+            };
+
+            Object.entries(summaryMap).forEach(([id, value]) => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.innerText = value;
+                }
+            });
         }
 
-        function upsertLineChart(key, canvasId, labels, values, label, color) {
-            if (!labels || !values || labels.length === 0) return;
+        function upsertLineChart(key, canvasId, labels, values, labelName, color) {
+            if (!Array.isArray(labels) || !Array.isArray(values) || labels.length === 0 || values.length === 0) {
+                return;
+            }
+
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) {
+                return;
+            }
 
             if (!charts[key]) {
-                charts[key] = new Chart(document.getElementById(canvasId), {
-                    type: 'line',
+                charts[key] = new Chart(canvas, {
+                    type: "line",
                     data: {
                         labels,
-                        datasets: [{
-                            label,
-                            data: values,
-                            borderColor: color,
-                            backgroundColor: color.replace("rgb", "rgba").replace(")", ",0.1)"),
-                            fill: true,
-                            tension: 0.4
-                        }]
+                        datasets: [
+                            {
+                                label: labelName,
+                                data: values,
+                                borderColor: color,
+                                backgroundColor: color.replace("rgb", "rgba").replace(")", ", 0.15)"),
+                                fill: true,
+                                tension: 0.35,
+                            },
+                        ],
                     },
-                    options: { responsive: true, maintainAspectRatio: false }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                    },
                 });
             } else {
                 charts[key].data.labels = labels;
@@ -195,66 +217,99 @@
         }
 
         function upsertPieChart(labels, values) {
-            if (!labels || labels.length === 0) return;
+            if (!Array.isArray(labels) || !Array.isArray(values) || labels.length === 0 || values.length === 0) {
+                return;
+            }
 
-            if (!charts.domains) {
-                charts.domains = new Chart(document.getElementById('domainsChart'), {
-                    type: 'doughnut',
+            const key = "domains";
+            const canvas = document.getElementById("domainsChart");
+            if (!canvas) {
+                return;
+            }
+
+            if (!charts[key]) {
+                charts[key] = new Chart(canvas, {
+                    type: "pie",
                     data: {
                         labels,
-                        datasets: [{
-                            data: values,
-                            backgroundColor: ['#22d3ee', '#38bdf8', '#818cf8', '#f472b6', '#facc15']
-                        }]
+                        datasets: [
+                            {
+                                data: values,
+                                backgroundColor: ["#22d3ee", "#38bdf8", "#818cf8", "#f472b6", "#facc15"],
+                            },
+                        ],
                     },
-                    options: { responsive: true, maintainAspectRatio: false }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                    },
                 });
             } else {
-                charts.domains.data.labels = labels;
-                charts.domains.data.datasets[0].data = values;
-                charts.domains.update();
+                charts[key].data.labels = labels;
+                charts[key].data.datasets[0].data = values;
+                charts[key].update();
             }
         }
 
         function upsertBarChart(labels, values) {
-            if (!labels || labels.length === 0) return;
+            if (!Array.isArray(labels) || !Array.isArray(values) || labels.length === 0 || values.length === 0) {
+                return;
+            }
 
-            if (!charts.bandwidth) {
-                charts.bandwidth = new Chart(document.getElementById('bandwidthChart'), {
-                    type: 'bar',
+            const key = "bandwidth";
+            const canvas = document.getElementById("bandwidthChart");
+            if (!canvas) {
+                return;
+            }
+
+            if (!charts[key]) {
+                charts[key] = new Chart(canvas, {
+                    type: "bar",
                     data: {
                         labels,
-                        datasets: [{
-                            label: "Bandwidth (MB)",
-                            data: values,
-                            backgroundColor: "#38bdf8"
-                        }]
+                        datasets: [
+                            {
+                                label: "Bandwidth (MB)",
+                                data: values,
+                                backgroundColor: "#38bdf8",
+                            },
+                        ],
                     },
-                    options: { responsive: true, maintainAspectRatio: false }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                    },
                 });
             } else {
-                charts.bandwidth.data.labels = labels;
-                charts.bandwidth.data.datasets[0].data = values;
-                charts.bandwidth.update();
+                charts[key].data.labels = labels;
+                charts[key].data.datasets[0].data = values;
+                charts[key].update();
+            }
+        }
+
+        function updateProxyStatus(data) {
+            if (data.proxy_active === undefined) {
+                return;
+            }
+
+            const dot = document.getElementById("statusDot");
+            const text = document.getElementById("statusText");
+            if (!dot || !text) {
+                return;
+            }
+
+            if (data.proxy_active) {
+                dot.style.backgroundColor = "limegreen";
+                text.textContent = "Proxy Online";
+            } else {
+                dot.style.backgroundColor = "red";
+                text.textContent = "Proxy Offline";
             }
         }
 
         function renderMetrics(data) {
             updateSummaryCards(data);
-            // Update proxy status
-            if (data.proxy_active !== undefined) {
-            const dot = document.getElementById('statusDot');
-            const text = document.getElementById('statusText');
-
-            if (data.proxy_active) {
-                dot.style.backgroundColor = 'limegreen';
-                text.textContent = 'Proxy Online';
-            } else {
-                dot.style.backgroundColor = 'red';
-                text.textContent = 'Proxy Offline';
-            }
-        }
-
+            updateProxyStatus(data);
 
             upsertLineChart(
                 "requests",
@@ -262,7 +317,7 @@
                 data.requests_time_labels || [],
                 data.requests_time_data || [],
                 "Requests",
-                "rgb(56,189,248)"
+                "rgb(56, 189, 248)"
             );
 
             upsertLineChart(
@@ -271,7 +326,7 @@
                 data.requests_time_labels || [],
                 data.latency_time_data || [],
                 "Latency (ms)",
-                "rgb(248,113,113)"
+                "rgb(248, 113, 113)"
             );
 
             upsertPieChart(
@@ -285,11 +340,15 @@
             );
         }
 
-        renderMetrics(initialStats);
+        socket.on("connect", () => {
+            renderMetrics(initialStats);
+        });
 
-        socket.on("metrics_update", function(data) {
+        socket.on("metrics_update", (data) => {
             renderMetrics(data);
         });
+
+        renderMetrics(initialStats);
     </script>
 </body>
 </html>

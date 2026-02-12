@@ -1,3 +1,6 @@
 # List one domain per line
 example.com
 ads.badsite.local
+bad-latency.com
+bad-bytes.com
+facebook.com

@@ -34,7 +34,7 @@
 <body>
     <header>
         <h1>Proxy Analytics</h1>
-        <div style="font-size: 0.9rem;">Live updates every 2s</div>
+        <div style="font-size: 0.9rem;">Auto-refreshing every 10s</div>
     </header>
 
     <div class="container">
@@ -59,6 +59,10 @@
             <div class="card">
                 <h3>Unique Clients</h3>
                 <div class="value" id="uniqueClients">{{ stats.unique_clients }}</div>
+            </div>
+            <div class="card">
+                <h3>Blocked Requests</h3>
+                <div class="value">{{ stats.blocked_requests }}</div>
             </div>
         </div>
 
@@ -87,83 +91,107 @@
     </div>
 
     <script>
-        // Chart defaults
+        // Auto-refresh
+        setTimeout(() => {
+            window.location.reload();
+        }, 10000);
+
+        // Chart.js Defaults
         Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
         Chart.defaults.color = '#7f8c8d';
 
-        // Initial data from Flask
-        const initialStats = {{ stats | tojson | safe }};
-        const socket = io();
+        // Data from Flask with safe fallbacks
+        const reqLabels = {{ stats.requests_time_labels | tojson | default('[]') }};
+        const reqData = {{ stats.requests_time_data | tojson | default('[]') }};
+        const latData = {{ stats.latency_time_data | tojson | default('[]') }};
 
-        const charts = {
-            requests: null,
-            latency: null,
-            domains: null,
-            bandwidth: null
-        };
+        const domainLabels = {{ stats.top_domains_labels | tojson | default('[]') }};
+        const domainData = {{ stats.top_domains_data | tojson | default('[]') }};
 
-        function hasData(labels, data) {
-            return Array.isArray(labels) && Array.isArray(data) && labels.length > 0 && data.length > 0;
-        }
+        const bwLabels = {{ stats.bw_domains_labels | tojson | default('[]') }};
+        const bwData = {{ stats.bw_domains_data | tojson | default('[]') }};
 
-        function setNoDataState(canvasId, show) {
+        function renderChartOrMessage(canvasId, hasData, chartConfig) {
             const canvas = document.getElementById(canvasId);
-            if (!canvas || !canvas.parentElement) return;
-
-            const container = canvas.parentElement;
-            let marker = container.querySelector('[data-empty-for="' + canvasId + '"]');
-
-            if (show) {
+            if (!hasData) {
+                const parent = canvas.parentElement;
                 canvas.style.display = 'none';
-                if (!marker) {
-                    marker = document.createElement('div');
-                    marker.setAttribute('data-empty-for', canvasId);
-                    marker.textContent = 'No data available yet';
-                    marker.style.textAlign = 'center';
-                    marker.style.color = '#95a5a6';
-                    marker.style.padding = '2rem 0';
-                    container.appendChild(marker);
-                }
+                const msg = document.createElement('div');
+                msg.textContent = 'No data yet';
+                msg.style.color = '#95a5a6';
+                msg.style.textAlign = 'center';
+                msg.style.padding = '2rem';
+                msg.style.fontSize = '0.9rem';
+                parent.appendChild(msg);
             } else {
-                canvas.style.display = 'block';
-                if (marker) {
-                    marker.remove();
-                }
+                new Chart(canvas, chartConfig);
             }
         }
 
-        function updateSummaryCards(data) {
-            document.getElementById('totalRequests').textContent = data.total_requests ?? 0;
-            document.getElementById('blockedRequests').textContent = data.blocked_requests ?? 0;
-            document.getElementById('avgLatency').textContent = data.avg_latency ?? 0;
-            document.getElementById('totalBandwidth').textContent = data.total_bandwidth ?? 0;
-            document.getElementById('uniqueClients').textContent = data.unique_clients ?? 0;
-        }
+        // 1. Requests Chart
+        renderChartOrMessage('requestsChart', reqData && reqData.length > 0, {
+            type: 'line',
+            data: {
+                labels: reqLabels,
+                datasets: [{
+                    label: 'Requests',
+                    data: reqData,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
 
-        function upsertLineChart(chartKey, canvasId, labels, values, label, color) {
-            const ready = hasData(labels, values);
-            setNoDataState(canvasId, !ready);
-            if (!ready) {
-                return;
-            }
+        // 2. Latency Chart
+        renderChartOrMessage('latencyChart', latData && latData.length > 0, {
+            type: 'line',
+            data: {
+                labels: reqLabels,
+                datasets: [{
+                    label: 'Latency (ms)',
+                    data: latData,
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
 
-            if (!charts[chartKey]) {
-                charts[chartKey] = new Chart(document.getElementById(canvasId), {
-                    type: 'line',
-                    data: {
-                        labels,
-                        datasets: [{
-                            label,
-                            data: values,
-                            borderColor: color,
-                            backgroundColor: color.replace(')', ', 0.1)').replace('rgb', 'rgba'),
-                            fill: true,
-                            tension: 0.4
-                        }]
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-                return;
+        // 3. Top Domains (Pie)
+        renderChartOrMessage('domainsChart', domainData && domainData.length > 0, {
+            type: 'doughnut',
+            data: {
+                labels: domainLabels,
+                datasets: [{
+                    data: domainData,
+                    backgroundColor: ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'],
+                    borderWidth: 0
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 4. Bandwidth (Bar)
+        renderChartOrMessage('bandwidthChart', bwData && bwData.length > 0, {
+            type: 'bar',
+            data: {
+                labels: bwLabels,
+                datasets: [{
+                    label: 'Bandwidth (MB)',
+                    data: bwData,
+                    backgroundColor: '#1abc9c',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } }
             }
 
             charts[chartKey].data.labels = labels;

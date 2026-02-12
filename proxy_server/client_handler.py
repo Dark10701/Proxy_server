@@ -64,12 +64,7 @@ class ClientHandler:
                     url,
                 )
                 self._send_forbidden(target_host)
-                self._log_blocked_request(
-                    method=method,
-                    url=url,
-                    host=target_host,
-                    request_bytes=len(request_data),
-                )
+                self._log_blocked_request(method=method, url=url, host=target_host)
                 return
 
             # Convert absolute-form request line to origin-form.
@@ -194,12 +189,7 @@ class ClientHandler:
                 url,
             )
             self._send_forbidden(target_host)
-            self._log_blocked_request(
-                method=method,
-                url=url,
-                host=target_host,
-                request_bytes=len(request_bytes),
-            )
+            self._log_blocked_request(method=method, url=url, host=target_host)
             return
 
         start_time = time.time()
@@ -230,25 +220,6 @@ class ClientHandler:
             request_bytes=request_size,
             response_bytes=response_size,
             blocked=0,
-        )
-
-    def _log_blocked_request(
-        self,
-        method: str,
-        url: str,
-        host: str,
-        request_bytes: int = 0,
-    ) -> None:
-        """Persist blocked request events in metrics."""
-        self.metrics_logger.log(
-            client_ip=self.client_address[0],
-            method=method,
-            url=url,
-            host=host,
-            latency_ms=0,
-            request_bytes=request_bytes,
-            response_bytes=0,
-            blocked=1,
         )
 
     def _parse_connect_target(self, authority: str) -> Tuple[str, int]:
@@ -329,3 +300,18 @@ class ClientHandler:
             "Proxy could not reach the upstream server."
         )
         self.client_socket.sendall(response.encode("utf-8"))
+
+    def _log_blocked_request(self, method: str, url: str, host: str) -> None:
+        """Log blocked request to metrics."""
+        self.metrics_logger.log(
+            client_ip=self.client_address[0],
+            method=method,
+            url=url,
+            host=host,
+            latency_ms=0,
+            request_bytes=0,
+            response_bytes=0,
+            blocked=1,
+        )
+
+

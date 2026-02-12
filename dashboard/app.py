@@ -61,7 +61,14 @@ def calculate_stats(data):
 
     total_requests = len(data)
     # Blocked requests are not logged in metrics.csv currently
-    blocked_requests = 0 
+    blocked_requests = 0
+
+    for row in data:
+        try:
+            if int(row.get("blocked", 0)) == 1:
+                blocked_requests += 1
+        except:
+            continue
     
     latencies = []
     bandwidth = 0

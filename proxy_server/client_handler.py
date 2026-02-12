@@ -302,7 +302,7 @@ class ClientHandler:
         self.client_socket.sendall(response.encode("utf-8"))
 
     def _log_blocked_request(self, method: str, url: str, host: str) -> None:
-    """Log blocked request to metrics."""
+        """Log blocked request to metrics."""
         self.metrics_logger.log(
             client_ip=self.client_address[0],
             method=method,
@@ -313,4 +313,5 @@ class ClientHandler:
             response_bytes=0,
             blocked=1,
         )
+
 

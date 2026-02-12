@@ -81,7 +81,7 @@ def calculate_stats(data):
     total_requests = len(data)
     # Blocked requests are not logged in metrics.csv currently
     blocked_requests = 0
-
+	
 	for row in data:
     	if str(row.get("blocked", "0")).strip() == "1":
         	blocked_requests += 1

@@ -7,9 +7,10 @@ from datetime import datetime
 import statistics
 import threading
 import time
+import socket
 
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
 
 _emitter_thread_started = False
 _emitter_lock = threading.Lock()
@@ -34,6 +35,12 @@ def get_metrics_path():
         return path
     return None
 
+def is_proxy_active():
+    try:
+        with socket.create_connection(("127.0.0.1", 8080), timeout=1):
+            return True
+    except Exception:
+        return False
 
 def parse_metrics():
     path = get_metrics_path()
@@ -86,7 +93,6 @@ def calculate_stats(data):
     bandwidth = 0
     clients = set()
     domains = []
-    blocked_requests = 0
 
     # Time series data
     req_per_min = defaultdict(int)
@@ -98,7 +104,7 @@ def calculate_stats(data):
         ts_str = (row.get('timestamp') or '').strip()
         if ts_str:
             try:
-                dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
+                dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
                 minute_key = dt.strftime("%d-%m-%Y %H:%M")
                 req_per_min[minute_key] += 1
             except ValueError:
@@ -149,6 +155,8 @@ def calculate_stats(data):
         req_per_min.keys(),
         key=lambda m: datetime.strptime(m, "%d-%m-%Y %H:%M")
     )
+
+
     requests_time_labels = sorted_mins
     requests_time_data = [req_per_min[k] for k in sorted_mins]
 
@@ -172,11 +180,13 @@ def calculate_stats(data):
         'requests_time_data': requests_time_data,
         'latency_time_data': latency_time_data,
         'bw_domains_labels': [d[0] for d in top_bw_domains],
-        'bw_domains_data': [round(d[1] / (1024 * 1024), 2) for d in top_bw_domains]
+        'bw_domains_data': [round(d[1] / (1024 * 1024), 2) for d in top_bw_domains],
+	'proxy_active': is_proxy_active()
     }
 
     # Emit latest computed stats for live dashboard updates.
     socketio.emit('metrics_update', stats)
+    stats['proxy_active'] = is_proxy_active()
     return stats
 
 

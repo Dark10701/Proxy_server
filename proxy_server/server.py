@@ -7,7 +7,7 @@ from typing import Tuple
 from client_handler import ClientHandler
 from filter_engine import FilterEngine
 from logger import ProxyLogger
-from metrics import MetricsLogger
+from metrics_store import MetricsStore
 
 
 class ProxyServer:
@@ -18,19 +18,18 @@ class ProxyServer:
         host: str,
         port: int,
         blocked_domains_path: str,
-        metrics_path: str,
+        metrics_store: MetricsStore,
         access_log_path: str,
         error_log_path: str,
     ) -> None:
         self.host = host
         self.port = port
         self.blocked_domains_path = blocked_domains_path
-        self.metrics_path = metrics_path
         self.access_log_path = access_log_path
         self.error_log_path = error_log_path
+        self.metrics_store = metrics_store
         self._shutdown_event = threading.Event()
         self.filter_engine = FilterEngine(self.blocked_domains_path)
-        self.metrics_logger = MetricsLogger(self.metrics_path)
         self.logger = ProxyLogger(self.access_log_path, self.error_log_path)
 
     def start(self) -> None:
@@ -54,7 +53,7 @@ class ProxyServer:
                     client_socket=client_socket,
                     client_address=client_addr,
                     filter_engine=self.filter_engine,
-                    metrics_logger=self.metrics_logger,
+                    metrics_store=self.metrics_store,
                     logger=self.logger,
                 )
                 thread = threading.Thread(target=handler.handle, daemon=True)

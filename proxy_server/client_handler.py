@@ -13,7 +13,7 @@ from http_parser import (
     parse_target_from_request,
 )
 from logger import ProxyLogger
-from metrics import MetricsLogger
+from metrics_store import MetricsStore
 
 
 class ClientHandler:
@@ -24,18 +24,19 @@ class ClientHandler:
         client_socket: socket.socket,
         client_address: Tuple[str, int],
         filter_engine: FilterEngine,
-        metrics_logger: MetricsLogger,
+        metrics_store: MetricsStore,
         logger: ProxyLogger,
     ) -> None:
         self.client_socket = client_socket
         self.client_address = client_address
         self.filter_engine = filter_engine
-        self.metrics_logger = metrics_logger
+        self.metrics_store = metrics_store
         self.logger = logger
 
     def handle(self) -> None:
         """Main entry point for processing a client request."""
         self.client_socket.settimeout(10)
+        self.metrics_store.increment_active_connections()
         try:
             request_data = self._recv_http_request()
             if not request_data:
@@ -44,6 +45,16 @@ class ClientHandler:
             request_line, headers, body = parse_http_request(request_data)
             if not request_line:
                 self._send_bad_request()
+                self.metrics_store.record_request(
+                    client_ip=self.client_address[0],
+                    method="UNKNOWN",
+                    host="",
+                    status_code=400,
+                    latency_ms=0,
+                    bytes_sent=0,
+                    bytes_received=0,
+                    blocked=False,
+                )
                 return
 
             method, url, version = request_line
@@ -55,6 +66,16 @@ class ClientHandler:
             target_host, target_port, path = parse_target_from_request(url, headers)
             if not target_host:
                 self._send_bad_request()
+                self.metrics_store.record_request(
+                    client_ip=self.client_address[0],
+                    method=method,
+                    host="",
+                    status_code=400,
+                    latency_ms=0,
+                    bytes_sent=0,
+                    bytes_received=0,
+                    blocked=False,
+                )
                 return
 
             if self.filter_engine.is_blocked(target_host, url):
@@ -64,7 +85,7 @@ class ClientHandler:
                     url,
                 )
                 self._send_forbidden(target_host)
-                self._log_blocked_request(method=method, url=url, host=target_host)
+                self._log_blocked_request(method=method, host=target_host)
                 return
 
             # Convert absolute-form request line to origin-form.
@@ -87,13 +108,13 @@ class ClientHandler:
                 target_port=target_port,
                 request_bytes=forward_bytes,
                 method=method,
-                url=url,
             )
         except socket.timeout:
             self.logger.error("Timeout from client %s", self.client_address[0])
         except Exception as exc:
             self.logger.error("Client handling error: %s", exc)
         finally:
+            self.metrics_store.decrement_active_connections()
             self.client_socket.close()
 
     def _recv_http_request(self) -> bytes:
@@ -133,7 +154,6 @@ class ClientHandler:
         target_port: int,
         request_bytes: bytes,
         method: str,
-        url: str,
     ) -> None:
         """Forward the HTTP request to the destination server and relay response."""
         start_time = time.time()
@@ -161,18 +181,28 @@ class ClientHandler:
         except Exception as exc:
             self.logger.error("Upstream error for %s: %s", target_host, exc)
             self._send_bad_gateway()
+            self.metrics_store.record_request(
+                client_ip=self.client_address[0],
+                method=method,
+                host=target_host,
+                status_code=502,
+                latency_ms=int((time.time() - start_time) * 1000),
+                bytes_sent=request_size,
+                bytes_received=response_size,
+                blocked=False,
+            )
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
-        self.metrics_logger.log(
+        self.metrics_store.record_request(
             client_ip=self.client_address[0],
             method=method,
-            url=url,
             host=target_host,
+            status_code=200,
             latency_ms=latency_ms,
-            request_bytes=request_size,
-            response_bytes=response_size,
-            blocked=0,
+            bytes_sent=request_size,
+            bytes_received=response_size,
+            blocked=False,
         )
 
     def _handle_connect(self, request_bytes: bytes, method: str, url: str) -> None:
@@ -180,6 +210,16 @@ class ClientHandler:
         target_host, target_port = self._parse_connect_target(url)
         if not target_host or target_port <= 0:
             self._send_bad_request()
+            self.metrics_store.record_request(
+                client_ip=self.client_address[0],
+                method=method,
+                host="",
+                status_code=400,
+                latency_ms=0,
+                bytes_sent=0,
+                bytes_received=0,
+                blocked=False,
+            )
             return
 
         if self.filter_engine.is_blocked(target_host, url):
@@ -189,7 +229,7 @@ class ClientHandler:
                 url,
             )
             self._send_forbidden(target_host)
-            self._log_blocked_request(method=method, url=url, host=target_host)
+            self._log_blocked_request(method=method, host=target_host)
             return
 
         start_time = time.time()
@@ -208,18 +248,28 @@ class ClientHandler:
         except Exception as exc:
             self.logger.error("CONNECT upstream error for %s:%s: %s", target_host, target_port, exc)
             self._send_bad_gateway()
+            self.metrics_store.record_request(
+                client_ip=self.client_address[0],
+                method=method,
+                host=target_host,
+                status_code=502,
+                latency_ms=int((time.time() - start_time) * 1000),
+                bytes_sent=request_size,
+                bytes_received=response_size,
+                blocked=False,
+            )
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
-        self.metrics_logger.log(
+        self.metrics_store.record_request(
             client_ip=self.client_address[0],
             method=method,
-            url=url,
             host=target_host,
+            status_code=200,
             latency_ms=latency_ms,
-            request_bytes=request_size,
-            response_bytes=response_size,
-            blocked=0,
+            bytes_sent=request_size,
+            bytes_received=response_size,
+            blocked=False,
         )
 
     def _parse_connect_target(self, authority: str) -> Tuple[str, int]:
@@ -301,17 +351,15 @@ class ClientHandler:
         )
         self.client_socket.sendall(response.encode("utf-8"))
 
-    def _log_blocked_request(self, method: str, url: str, host: str) -> None:
-        """Log blocked request to metrics."""
-        self.metrics_logger.log(
+    def _log_blocked_request(self, method: str, host: str) -> None:
+        """Log blocked request in metrics store."""
+        self.metrics_store.record_request(
             client_ip=self.client_address[0],
             method=method,
-            url=url,
             host=host,
+            status_code=403,
             latency_ms=0,
-            request_bytes=0,
-            response_bytes=0,
-            blocked=1,
+            bytes_sent=0,
+            bytes_received=0,
+            blocked=True,
         )
-
-

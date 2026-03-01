@@ -2,6 +2,8 @@
 
 import argparse
 
+from metrics_store import MetricsStore
+from monitoring_server import start_monitoring_server
 from server import ProxyServer
 
 
@@ -21,11 +23,6 @@ def parse_args() -> argparse.Namespace:
         help="Path to blocked domains file",
     )
     parser.add_argument(
-        "--metrics-path",
-        default="logs/metrics.csv",
-        help="Path to CSV metrics log",
-    )
-    parser.add_argument(
         "--access-log",
         default="logs/access.log",
         help="Path to access log file",
@@ -40,11 +37,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    metrics_store = MetricsStore()
+    start_monitoring_server(metrics_store=metrics_store, host="0.0.0.0", port=9090)
+
+    print(f"Proxy running on {args.host}:{args.port}")
+    print("Monitoring dashboard available at http://localhost:9090")
+
     server = ProxyServer(
         host=args.host,
         port=args.port,
         blocked_domains_path=args.blocked_domains,
-        metrics_path=args.metrics_path,
+        metrics_store=metrics_store,
         access_log_path=args.access_log,
         error_log_path=args.error_log,
     )

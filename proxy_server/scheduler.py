@@ -3,7 +3,7 @@
 import queue
 import socket
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 
 class RequestScheduler:
@@ -12,7 +12,7 @@ class RequestScheduler:
     def __init__(self) -> None:
         self._queue: queue.PriorityQueue = queue.PriorityQueue()
         self._shutdown_event = threading.Event()
-        self._worker_threads: List[threading.Thread] = []
+        self._worker_thread: Optional[threading.Thread] = None
         self._sequence = 0
         self._seq_lock = threading.Lock()
 
@@ -34,13 +34,12 @@ class RequestScheduler:
         except queue.Empty:
             return None
 
-    def start(self, dispatch_callback, worker_count: int = 8) -> None:
-        """Start scheduler worker loops for concurrent QoS dispatch."""
-        if self._worker_threads and any(worker.is_alive() for worker in self._worker_threads):
+    def start(self, dispatch_callback) -> None:
+        """Start scheduler worker loop."""
+        if self._worker_thread and self._worker_thread.is_alive():
             return
 
         self._shutdown_event.clear()
-        self._worker_threads = []
 
         def _worker() -> None:
             while not self._shutdown_event.is_set():
@@ -53,17 +52,13 @@ class RequestScheduler:
                 finally:
                     self._queue.task_done()
 
-        for _ in range(max(worker_count, 1)):
-            worker = threading.Thread(target=_worker, daemon=True)
-            worker.start()
-            self._worker_threads.append(worker)
+        self._worker_thread = threading.Thread(target=_worker, daemon=True)
+        self._worker_thread.start()
 
     def stop(self) -> None:
         self._shutdown_event.set()
-        for worker in self._worker_threads:
-            if worker.is_alive():
-                worker.join(timeout=1.0)
-        self._worker_threads = []
+        if self._worker_thread and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=1.0)
 
     def get_queue_size(self) -> int:
         return self._queue.qsize()

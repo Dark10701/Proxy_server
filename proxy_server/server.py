@@ -38,7 +38,7 @@ class ProxyServer:
 
     def start(self) -> None:
         """Start the TCP listener and accept clients forever."""
-        self.scheduler.start(self._dispatch_scheduled_request, worker_count=8)
+        self.scheduler.start(self._dispatch_scheduled_request)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_socket.bind((self.host, self.port))

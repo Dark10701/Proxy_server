@@ -14,6 +14,11 @@
         .card p { margin: 8px 0 0; font-size: 22px; font-weight: bold; }
         .charts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
         .chart-box { background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        .traffic-panel { margin-top: 16px; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        .traffic-chip { display: inline-block; padding: 5px 10px; border-radius: 999px; color: #fff; font-weight: bold; }
+        .steady { background: #2e7d32; }
+        .burst { background: #f9a825; }
+        .spike { background: #c62828; }
         table { width: 100%; border-collapse: collapse; background: white; margin-top: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
         th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; font-size: 13px; }
         th { background: #fafafa; }
@@ -28,6 +33,10 @@
         <div class="card"><h3>Active Connections</h3><p id="activeConnections">0</p></div>
         <div class="card"><h3>Avg Latency (ms)</h3><p id="avgLatency">0</p></div>
         <div class="card"><h3>Total Bandwidth (bytes)</h3><p id="totalBandwidth">0</p></div>
+        <div class="card"><h3>Adaptive Rate (req/s)</h3><p id="currentRate">0</p></div>
+        <div class="card"><h3>Scheduler Queue Size</h3><p id="queueSize">0</p></div>
+        <div class="card"><h3>Traffic Type</h3><p><span id="trafficType" class="traffic-chip steady">STEADY</span></p></div>
+        <div class="card"><h3>Avg Inter-arrival (s)</h3><p id="avgInterArrival">0</p></div>
     </div>
 
     <div class="charts">
@@ -35,6 +44,12 @@
         <div class="chart-box"><canvas id="latencyChart"></canvas></div>
         <div class="chart-box"><canvas id="blockedChart"></canvas></div>
         <div class="chart-box"><canvas id="domainsChart"></canvas></div>
+        <div class="chart-box"><canvas id="trafficChart"></canvas></div>
+    </div>
+
+    <div class="traffic-panel">
+        <h3>Traffic Pattern Analysis</h3>
+        <p>Current classification: <span id="trafficTypeLabel">STEADY</span></p>
     </div>
 
     <table>
@@ -75,18 +90,38 @@
             options: { responsive: true }
         });
 
+        const trafficChart = new Chart(document.getElementById('trafficChart'), {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Requests / second', data: [], borderColor: '#00897b' }] },
+            options: { responsive: true }
+        });
+
+        function formatTrafficType(value) {
+            return (value || 'steady').toUpperCase();
+        }
+
         async function refresh() {
-            const [summary, series, domains, recent] = await Promise.all([
+            const [summary, series, domains, recent, traffic] = await Promise.all([
                 fetch('/api/summary').then(r => r.json()),
                 fetch('/api/time-series').then(r => r.json()),
                 fetch('/api/top-domains').then(r => r.json()),
-                fetch('/api/recent-requests').then(r => r.json())
+                fetch('/api/recent-requests').then(r => r.json()),
+                fetch('/api/traffic-patterns').then(r => r.json())
             ]);
 
             document.getElementById('totalRequests').textContent = summary.total_requests;
             document.getElementById('activeConnections').textContent = summary.active_connections;
             document.getElementById('avgLatency').textContent = summary.average_latency_ms;
             document.getElementById('totalBandwidth').textContent = summary.total_bandwidth_bytes;
+            document.getElementById('currentRate').textContent = summary.current_rate;
+            document.getElementById('queueSize').textContent = summary.scheduler_queue_size;
+            document.getElementById('avgInterArrival').textContent = traffic.avg_inter_arrival_time;
+
+            const type = (traffic.traffic_type || 'steady').toLowerCase();
+            const chip = document.getElementById('trafficType');
+            chip.textContent = formatTrafficType(type);
+            chip.className = `traffic-chip ${type}`;
+            document.getElementById('trafficTypeLabel').textContent = formatTrafficType(type);
 
             requestsChart.data.labels = series.timestamps;
             requestsChart.data.datasets[0].data = series.requests_per_minute;
@@ -102,6 +137,10 @@
             domainsChart.data.labels = domains.domains;
             domainsChart.data.datasets[0].data = domains.counts;
             domainsChart.update();
+
+            trafficChart.data.labels = traffic.requests_per_second.map((_, idx) => idx + 1);
+            trafficChart.data.datasets[0].data = traffic.requests_per_second;
+            trafficChart.update();
 
             const body = document.getElementById('recentTableBody');
             body.innerHTML = '';

@@ -19,6 +19,7 @@ class MetricsStore:
         self.cumulative_latency = 0.0
         self.recent_requests: Deque[Dict[str, object]] = deque(maxlen=1000)
         self._request_timestamps: Deque[float] = deque()
+        self._arrival_timestamps: Deque[float] = deque(maxlen=5000)
         self._latency_by_minute: Dict[int, List[float]] = defaultdict(list)
         self._domain_counts: Dict[str, int] = defaultdict(int)
 
@@ -65,6 +66,7 @@ class MetricsStore:
             self.cumulative_latency += latency_ms
             self.recent_requests.append(request_record)
             self._request_timestamps.append(now)
+            self._arrival_timestamps.append(now)
             self._latency_by_minute[minute_bucket].append(latency_ms)
             if host:
                 self._domain_counts[host] += 1
@@ -138,3 +140,55 @@ class MetricsStore:
     def get_recent_requests(self, limit: int = 20) -> List[Dict[str, object]]:
         with self._lock:
             return list(self.recent_requests)[-limit:][::-1]
+
+    def get_traffic_patterns(self) -> Dict[str, object]:
+        """Return traffic dynamics to support CN-focused dashboard analysis."""
+        with self._lock:
+            arrivals = list(self._arrival_timestamps)
+
+        if not arrivals:
+            return {
+                "requests_per_second": [],
+                "traffic_type": "steady",
+                "avg_inter_arrival_time": 0.0,
+            }
+
+        second_counts: Dict[int, int] = defaultdict(int)
+        for ts in arrivals:
+            second_counts[int(ts)] += 1
+
+        sorted_seconds = sorted(second_counts.keys())
+        requests_per_second = [second_counts[sec] for sec in sorted_seconds[-60:]]
+
+        intervals: List[float] = []
+        for idx in range(1, len(arrivals)):
+            delta = arrivals[idx] - arrivals[idx - 1]
+            if delta >= 0:
+                intervals.append(delta)
+
+        if intervals:
+            avg_inter_arrival = round(sum(intervals) / len(intervals), 4)
+            mean = sum(intervals) / len(intervals)
+            variance = sum((value - mean) ** 2 for value in intervals) / len(intervals)
+        else:
+            avg_inter_arrival = 0.0
+            variance = 0.0
+
+        traffic_type = "steady"
+        if len(requests_per_second) >= 5:
+            recent_window = requests_per_second[-5:]
+            baseline = (
+                sum(requests_per_second[:-1]) / max(len(requests_per_second[:-1]), 1)
+                if len(requests_per_second) > 1
+                else recent_window[-1]
+            )
+            if baseline > 0 and recent_window[-1] >= baseline * 2.5:
+                traffic_type = "spike"
+            elif variance > 0.1:
+                traffic_type = "burst"
+
+        return {
+            "requests_per_second": requests_per_second,
+            "traffic_type": traffic_type,
+            "avg_inter_arrival_time": avg_inter_arrival,
+        }

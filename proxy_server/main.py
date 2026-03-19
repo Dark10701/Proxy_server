@@ -38,11 +38,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     metrics_store = MetricsStore()
-    start_monitoring_server(metrics_store=metrics_store, host="0.0.0.0", port=9090)
-
-    print(f"Proxy running on {args.host}:{args.port}")
-    print("Monitoring dashboard available at http://localhost:9090")
-
     server = ProxyServer(
         host=args.host,
         port=args.port,
@@ -51,6 +46,16 @@ def main() -> None:
         access_log_path=args.access_log,
         error_log_path=args.error_log,
     )
+    start_monitoring_server(
+        metrics_store=metrics_store,
+        rate_controller=server.rate_controller,
+        scheduler=server.scheduler,
+        host="0.0.0.0",
+        port=9090,
+    )
+
+    print(f"Proxy running on {args.host}:{args.port}")
+    print("Monitoring dashboard available at http://localhost:9090")
     server.start()
 
 

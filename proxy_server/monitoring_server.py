@@ -2,18 +2,32 @@
 
 import os
 import threading
+from typing import Optional
 
 from flask import Flask, jsonify, send_file
 
 from metrics_store import MetricsStore
+from rate_controller import RateController
+from scheduler import RequestScheduler
 
 
-def create_monitoring_app(metrics_store: MetricsStore) -> Flask:
+def create_monitoring_app(
+    metrics_store: MetricsStore,
+    rate_controller: Optional[RateController] = None,
+    scheduler: Optional[RequestScheduler] = None,
+) -> Flask:
     app = Flask(__name__)
 
     @app.get("/api/summary")
     def summary() -> tuple:
-        return jsonify(metrics_store.get_summary()), 200
+        summary_data = metrics_store.get_summary()
+        summary_data["current_rate"] = (
+            rate_controller.get_current_rate() if rate_controller else 0.0
+        )
+        summary_data["scheduler_queue_size"] = (
+            scheduler.get_queue_size() if scheduler else 0
+        )
+        return jsonify(summary_data), 200
 
     @app.get("/api/time-series")
     def time_series() -> tuple:
@@ -27,6 +41,10 @@ def create_monitoring_app(metrics_store: MetricsStore) -> Flask:
     def recent_requests() -> tuple:
         return jsonify(metrics_store.get_recent_requests(limit=20)), 200
 
+    @app.get("/api/traffic-patterns")
+    def traffic_patterns() -> tuple:
+        return jsonify(metrics_store.get_traffic_patterns()), 200
+
     @app.get("/")
     def dashboard() -> object:
         template_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
@@ -35,8 +53,18 @@ def create_monitoring_app(metrics_store: MetricsStore) -> Flask:
     return app
 
 
-def start_monitoring_server(metrics_store: MetricsStore, host: str = "0.0.0.0", port: int = 9090) -> threading.Thread:
-    app = create_monitoring_app(metrics_store)
+def start_monitoring_server(
+    metrics_store: MetricsStore,
+    rate_controller: Optional[RateController] = None,
+    scheduler: Optional[RequestScheduler] = None,
+    host: str = "0.0.0.0",
+    port: int = 9090,
+) -> threading.Thread:
+    app = create_monitoring_app(
+        metrics_store=metrics_store,
+        rate_controller=rate_controller,
+        scheduler=scheduler,
+    )
 
     thread = threading.Thread(
         target=lambda: app.run(host=host, port=port, debug=False, use_reloader=False),

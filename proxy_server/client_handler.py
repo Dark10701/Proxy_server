@@ -14,6 +14,7 @@ from http_parser import (
 )
 from logger import ProxyLogger
 from metrics_store import MetricsStore
+from rate_controller import RateController
 
 
 class ClientHandler:
@@ -26,18 +27,23 @@ class ClientHandler:
         filter_engine: FilterEngine,
         metrics_store: MetricsStore,
         logger: ProxyLogger,
+        rate_controller: RateController,
     ) -> None:
         self.client_socket = client_socket
         self.client_address = client_address
         self.filter_engine = filter_engine
         self.metrics_store = metrics_store
         self.logger = logger
+        self.rate_controller = rate_controller
 
     def handle(self) -> None:
         """Main entry point for processing a client request."""
         self.client_socket.settimeout(10)
         self.metrics_store.increment_active_connections()
         try:
+            while not self.rate_controller.allow_request():
+                time.sleep(0.05)
+
             request_data = self._recv_http_request()
             if not request_data:
                 return
@@ -181,12 +187,14 @@ class ClientHandler:
         except Exception as exc:
             self.logger.error("Upstream error for %s: %s", target_host, exc)
             self._send_bad_gateway()
+            latency_ms = int((time.time() - start_time) * 1000)
+            self.rate_controller.record_latency(latency_ms)
             self.metrics_store.record_request(
                 client_ip=self.client_address[0],
                 method=method,
                 host=target_host,
                 status_code=502,
-                latency_ms=int((time.time() - start_time) * 1000),
+                latency_ms=latency_ms,
                 bytes_sent=request_size,
                 bytes_received=response_size,
                 blocked=False,
@@ -194,6 +202,7 @@ class ClientHandler:
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
+        self.rate_controller.record_latency(latency_ms)
         self.metrics_store.record_request(
             client_ip=self.client_address[0],
             method=method,
@@ -248,12 +257,14 @@ class ClientHandler:
         except Exception as exc:
             self.logger.error("CONNECT upstream error for %s:%s: %s", target_host, target_port, exc)
             self._send_bad_gateway()
+            latency_ms = int((time.time() - start_time) * 1000)
+            self.rate_controller.record_latency(latency_ms)
             self.metrics_store.record_request(
                 client_ip=self.client_address[0],
                 method=method,
                 host=target_host,
                 status_code=502,
-                latency_ms=int((time.time() - start_time) * 1000),
+                latency_ms=latency_ms,
                 bytes_sent=request_size,
                 bytes_received=response_size,
                 blocked=False,
@@ -261,6 +272,7 @@ class ClientHandler:
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
+        self.rate_controller.record_latency(latency_ms)
         self.metrics_store.record_request(
             client_ip=self.client_address[0],
             method=method,

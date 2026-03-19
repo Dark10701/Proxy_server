@@ -17,10 +17,6 @@ from logger import ProxyLogger
 from metrics_store import MetricsStore
 from rate_controller import RateController
 
-ENABLE_HTTPS_INSPECTION = False
-HTTPS_INSPECTION_CERT_FILE = ""
-HTTPS_INSPECTION_KEY_FILE = ""
-
 
 class ClientHandler:
     """Handles an individual client connection in its own thread."""
@@ -312,7 +308,6 @@ class ClientHandler:
 
         latency_ms = int((time.time() - start_time) * 1000)
         self.rate_controller.record_latency(latency_ms)
-        # Record final tunnel stats (duration + transferred bytes).
         self.metrics_store.record_request(
             client_ip=self.client_address[0],
             method=method,

@@ -343,23 +343,6 @@ class ClientHandler:
         )
         self.client_socket.sendall(response.encode("utf-8"))
 
-    def _send_too_many_requests(self) -> int:
-        response = "HTTP/1.1 429 Too Many Requests\r\n\r\n"
-        response_bytes = response.encode("utf-8")
-        self.client_socket.sendall(response_bytes)
-        return len(response_bytes)
-
-    def _is_rate_limited(self, client_ip: str) -> bool:
-        now = time.time()
-        with _rate_limit_lock:
-            timestamps = _rate_limit_by_ip.setdefault(client_ip, [])
-            cutoff = now - RATE_LIMIT_WINDOW_SECONDS
-            timestamps[:] = [ts for ts in timestamps if ts >= cutoff]
-            if len(timestamps) >= RATE_LIMIT_REQUESTS:
-                return True
-            timestamps.append(now)
-            return False
-
     def _log_blocked_request(
         self,
         method: str,

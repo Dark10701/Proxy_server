@@ -40,6 +40,7 @@ class ClientHandler:
             request_data = self._recv_http_request()
             if not request_data:
                 return
+            request_start_time = time.time()
 
             request_line, headers, body = parse_http_request(request_data)
             if not request_line:
@@ -63,8 +64,16 @@ class ClientHandler:
                     self.client_address[0],
                     url,
                 )
-                self._send_forbidden(target_host)
-                self._log_blocked_request(method=method, url=url, host=target_host)
+                latency_ms = int((time.time() - request_start_time) * 1000)
+                response_size = self._send_forbidden(target_host)
+                self._log_blocked_request(
+                    method=method,
+                    url=url,
+                    host=target_host,
+                    latency_ms=latency_ms,
+                    request_bytes=len(request_data),
+                    response_bytes=response_size,
+                )
                 return
 
             # Convert absolute-form request line to origin-form.
@@ -177,6 +186,7 @@ class ClientHandler:
 
     def _handle_connect(self, request_bytes: bytes, method: str, url: str) -> None:
         """Handle HTTPS tunneling using HTTP CONNECT."""
+        start_time = time.time()
         target_host, target_port = self._parse_connect_target(url)
         if not target_host or target_port <= 0:
             self._send_bad_request()
@@ -188,11 +198,18 @@ class ClientHandler:
                 self.client_address[0],
                 url,
             )
-            self._send_forbidden(target_host)
-            self._log_blocked_request(method=method, url=url, host=target_host)
+            latency_ms = int((time.time() - start_time) * 1000)
+            response_size = self._send_forbidden(target_host)
+            self._log_blocked_request(
+                method=method,
+                url=url,
+                host=target_host,
+                latency_ms=latency_ms,
+                request_bytes=len(request_bytes),
+                response_bytes=response_size,
+            )
             return
 
-        start_time = time.time()
         request_size = len(request_bytes)
         response_size = 0
 
@@ -271,7 +288,7 @@ class ClientHandler:
                 if src is upstream_socket:
                     tunneled_from_upstream += len(data)
 
-    def _send_forbidden(self, host: str) -> None:
+    def _send_forbidden(self, host: str) -> int:
         response = (
             "HTTP/1.1 403 Forbidden\r\n"
             "Content-Type: text/plain\r\n"
@@ -279,7 +296,9 @@ class ClientHandler:
             "\r\n"
             f"Access to {host} is blocked by proxy policy."
         )
-        self.client_socket.sendall(response.encode("utf-8"))
+        response_bytes = response.encode("utf-8")
+        self.client_socket.sendall(response_bytes)
+        return len(response_bytes)
 
     def _send_bad_request(self) -> None:
         response = (
@@ -301,15 +320,23 @@ class ClientHandler:
         )
         self.client_socket.sendall(response.encode("utf-8"))
 
-    def _log_blocked_request(self, method: str, url: str, host: str) -> None:
+    def _log_blocked_request(
+        self,
+        method: str,
+        url: str,
+        host: str,
+        latency_ms: int,
+        request_bytes: int,
+        response_bytes: int,
+    ) -> None:
         """Log blocked request to metrics."""
         self.metrics_logger.log(
             client_ip=self.client_address[0],
             method=method,
             url=url,
             host=host,
-            latency_ms=0,
-            request_bytes=0,
-            response_bytes=0,
+            latency_ms=latency_ms,
+            request_bytes=request_bytes,
+            response_bytes=response_bytes,
             blocked=1,
         )

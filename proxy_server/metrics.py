@@ -1,6 +1,7 @@
 """Metrics logging for proxy performance monitoring."""
 
 import csv
+import os
 import threading
 import time
 from pathlib import Path
@@ -90,3 +91,5 @@ class MetricsLogger:
                         blocked,
                     ]
                 )
+                csv_file.flush()
+                os.fsync(csv_file.fileno())

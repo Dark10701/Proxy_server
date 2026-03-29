@@ -4,3 +4,5 @@ ads.badsite.local
 bad-latency.com
 bad-bytes.com
 facebook.com
+instagram.com
+flipkart.com

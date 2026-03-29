@@ -21,16 +21,16 @@ def get_metrics_path():
     # Assuming app is run from dashboard/ or root
     # Try finding logs/metrics.csv relative to app.py
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Check parent dir (if running from dashboard/)
-    path = os.path.join(base_dir, '..', 'logs', 'metrics.csv')
+    # Prefer proxy_server logs to match proxy_server/main.py defaults
+    path = os.path.abspath(os.path.join(base_dir, '..', 'proxy_server', 'logs', 'metrics.csv'))
     if os.path.exists(path):
         return path
-    # Check proxy_server dir (common structure)
-    path = os.path.join(base_dir, '..', 'proxy_server', 'logs', 'metrics.csv')
+    # Fallback: parent logs dir (if project writes there)
+    path = os.path.abspath(os.path.join(base_dir, '..', 'logs', 'metrics.csv'))
     if os.path.exists(path):
         return path
     # Check current dir (if logs is inside dashboard, unlikely)
-    path = os.path.join(base_dir, 'logs', 'metrics.csv')
+    path = os.path.abspath(os.path.join(base_dir, 'logs', 'metrics.csv'))
     if os.path.exists(path):
         return path
     return None
@@ -102,12 +102,15 @@ def calculate_stats(data):
         ts_str = (row.get('timestamp') or '').strip()
         if ts_str:
             try:
-                dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
+                dt = datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
             except ValueError:
                 try:
-                    dt = datetime.strptime(ts_str.replace("  ", " "), "%d-%m-%Y %H:%M:%S")
+                    dt = datetime.strptime(ts_str, "%d-%m-%Y  %H:%M:%S")
                 except ValueError:
-                    dt = None
+                    try:
+                        dt = datetime.strptime(ts_str.replace("  ", " "), "%d-%m-%Y %H:%M:%S")
+                    except ValueError:
+                        dt = None
 
             if dt:
                 minute_key = dt.strftime("%d-%m-%Y %H:%M")

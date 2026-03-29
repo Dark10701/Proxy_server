@@ -2,6 +2,7 @@
 
 import select
 import socket
+import threading
 import time
 from typing import Dict, Tuple
 from urllib.parse import urlsplit
@@ -14,6 +15,11 @@ from http_parser import (
 )
 from logger import ProxyLogger
 from metrics import MetricsLogger
+
+RATE_LIMIT_REQUESTS = 50
+RATE_LIMIT_WINDOW_SECONDS = 60
+_rate_limit_by_ip: Dict[str, list] = {}
+_rate_limit_lock = threading.Lock()
 
 
 class ClientHandler:
@@ -48,6 +54,23 @@ class ClientHandler:
                 return
 
             method, url, version = request_line
+
+            if self._is_rate_limited(self.client_address[0]):
+                if method.upper() == "CONNECT":
+                    target_host = url.split(":", 1)[0].strip("[]")
+                else:
+                    target_host, _, _ = parse_target_from_request(url, headers)
+                latency_ms = int((time.time() - request_start_time) * 1000)
+                response_size = self._send_too_many_requests()
+                self._log_blocked_request(
+                    method=method,
+                    url=url,
+                    host=target_host,
+                    latency_ms=latency_ms,
+                    request_bytes=len(request_data),
+                    response_bytes=response_size,
+                )
+                return
 
             if method.upper() == "CONNECT":
                 self._handle_connect(request_data, method, url)

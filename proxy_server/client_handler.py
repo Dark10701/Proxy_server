@@ -56,6 +56,7 @@ class ClientHandler:
             method, url, version = request_line
 
             if self._is_rate_limited(self.client_address[0]):
+                reason = "rate_limited"
                 if method.upper() == "CONNECT":
                     target_host = url.split(":", 1)[0].strip("[]")
                 else:
@@ -63,6 +64,7 @@ class ClientHandler:
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_too_many_requests()
                 self._log_blocked_request(
+                    reason=reason,
                     method=method,
                     url=url,
                     host=target_host,
@@ -82,6 +84,7 @@ class ClientHandler:
                 return
 
             if self.filter_engine.is_blocked(target_host, url):
+                reason = "blocked_domain"
                 self.logger.info(
                     "Blocked request from %s to %s",
                     self.client_address[0],
@@ -90,6 +93,7 @@ class ClientHandler:
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_forbidden(target_host)
                 self._log_blocked_request(
+                    reason=reason,
                     method=method,
                     url=url,
                     host=target_host,
@@ -230,6 +234,7 @@ class ClientHandler:
             return
 
         if self.filter_engine.is_blocked(target_host, url):
+            reason = "blocked_domain"
             self.logger.info(
                 "Blocked request from %s to %s",
                 self.client_address[0],
@@ -238,6 +243,7 @@ class ClientHandler:
             latency_ms = int((time.time() - start_time) * 1000)
             response_size = self._send_forbidden(target_host)
             self._log_blocked_request(
+                reason=reason,
                 method=method,
                 url=url,
                 host=target_host,
@@ -359,6 +365,7 @@ class ClientHandler:
 
     def _log_blocked_request(
         self,
+        reason: str,
         method: str,
         url: str,
         host: str,

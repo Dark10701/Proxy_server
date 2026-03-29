@@ -353,6 +353,13 @@ class ClientHandler:
         response_bytes: int,
     ) -> None:
         """Log blocked request to metrics."""
+        self.logger.info(
+            "Blocked request reason=%s client=%s host=%s url=%s",
+            reason,
+            self.client_address[0],
+            host,
+            url,
+        )
         self.metrics_logger.log(
             client_ip=self.client_address[0],
             method=method,

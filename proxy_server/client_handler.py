@@ -343,6 +343,19 @@ class ClientHandler:
         self.client_socket.sendall(response_bytes)
         return len(response_bytes)
 
+    def _send_too_many_requests(self) -> int:
+        response = (
+            "HTTP/1.1 429 Too Many Requests\r\n"
+            "Content-Type: text/plain\r\n"
+            "Connection: close\r\n"
+            "Retry-After: 60\r\n"
+            "\r\n"
+            "Too many requests. Please try again later."
+        )
+        response_bytes = response.encode("utf-8")
+        self.client_socket.sendall(response_bytes)
+        return len(response_bytes)
+
     def _send_bad_request(self) -> None:
         response = (
             "HTTP/1.1 400 Bad Request\r\n"

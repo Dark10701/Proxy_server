@@ -128,6 +128,20 @@ class ClientHandler:
         finally:
             self.client_socket.close()
 
+    def _is_rate_limited(self, client_ip: str) -> bool:
+        """Return True when a client exceeds the configured request rate."""
+        now = time.time()
+        window_start = now - RATE_LIMIT_WINDOW_SECONDS
+        with _rate_limit_lock:
+            timestamps = _rate_limit_by_ip.get(client_ip, [])
+            timestamps = [ts for ts in timestamps if ts >= window_start]
+            if len(timestamps) >= RATE_LIMIT_REQUESTS:
+                _rate_limit_by_ip[client_ip] = timestamps
+                return True
+            timestamps.append(now)
+            _rate_limit_by_ip[client_ip] = timestamps
+            return False
+
     def _recv_http_request(self) -> bytes:
         """Receive the full HTTP request from the client socket."""
         buffer = bytearray()

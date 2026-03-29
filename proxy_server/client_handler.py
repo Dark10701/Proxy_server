@@ -16,7 +16,7 @@ from http_parser import (
 from logger import ProxyLogger
 from metrics import MetricsLogger
 
-RATE_LIMIT_REQUESTS = 180
+RATE_LIMIT_REQUESTS = 50
 RATE_LIMIT_WINDOW_SECONDS = 60
 _rate_limit_by_ip: Dict[str, list] = {}
 _rate_limit_lock = threading.Lock()
@@ -55,10 +55,11 @@ class ClientHandler:
 
             method, url, version = request_line
 
-            # Apply rate limiting only to regular HTTP requests.
-            # CONNECT tunnels are intentionally excluded to avoid over-blocking browsers.
-            if method.upper() != "CONNECT" and self._is_rate_limited(self.client_address[0]):
-                target_host, _, _ = parse_target_from_request(url, headers)
+            if self._is_rate_limited(self.client_address[0]):
+                if method.upper() == "CONNECT":
+                    target_host = url.split(":", 1)[0].strip("[]")
+                else:
+                    target_host, _, _ = parse_target_from_request(url, headers)
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_too_many_requests()
                 self._log_blocked_request(
@@ -68,7 +69,6 @@ class ClientHandler:
                     latency_ms=latency_ms,
                     request_bytes=len(request_data),
                     response_bytes=response_size,
-                    reason="rate_limited",
                 )
                 return
 
@@ -343,23 +343,6 @@ class ClientHandler:
         )
         self.client_socket.sendall(response.encode("utf-8"))
 
-    def _send_too_many_requests(self) -> int:
-        response = "HTTP/1.1 429 Too Many Requests\r\n\r\n"
-        response_bytes = response.encode("utf-8")
-        self.client_socket.sendall(response_bytes)
-        return len(response_bytes)
-
-    def _is_rate_limited(self, client_ip: str) -> bool:
-        now = time.time()
-        with _rate_limit_lock:
-            timestamps = _rate_limit_by_ip.setdefault(client_ip, [])
-            cutoff = now - RATE_LIMIT_WINDOW_SECONDS
-            timestamps[:] = [ts for ts in timestamps if ts >= cutoff]
-            if len(timestamps) >= RATE_LIMIT_REQUESTS:
-                return True
-            timestamps.append(now)
-            return False
-
     def _log_blocked_request(
         self,
         method: str,
@@ -368,7 +351,6 @@ class ClientHandler:
         latency_ms: int,
         request_bytes: int,
         response_bytes: int,
-        reason: str = "policy_blocked",
     ) -> None:
         """Log blocked request to metrics."""
         self.logger.info(

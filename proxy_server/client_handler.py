@@ -1,7 +1,6 @@
 """Handle a single client connection and proxy HTTP requests."""
 
 import select
-import ssl
 import socket
 import time
 from typing import Dict, Tuple
@@ -14,8 +13,7 @@ from http_parser import (
     parse_target_from_request,
 )
 from logger import ProxyLogger
-from metrics_store import MetricsStore
-from rate_controller import RateController
+from metrics import MetricsLogger
 
 
 class ClientHandler:
@@ -26,25 +24,19 @@ class ClientHandler:
         client_socket: socket.socket,
         client_address: Tuple[str, int],
         filter_engine: FilterEngine,
-        metrics_store: MetricsStore,
+        metrics_logger: MetricsLogger,
         logger: ProxyLogger,
-        rate_controller: RateController,
     ) -> None:
         self.client_socket = client_socket
         self.client_address = client_address
         self.filter_engine = filter_engine
-        self.metrics_store = metrics_store
+        self.metrics_logger = metrics_logger
         self.logger = logger
-        self.rate_controller = rate_controller
 
     def handle(self) -> None:
         """Main entry point for processing a client request."""
         self.client_socket.settimeout(10)
-        self.metrics_store.increment_active_connections()
         try:
-            while not self.rate_controller.allow_request():
-                time.sleep(0.05)
-
             request_data = self._recv_http_request()
             if not request_data:
                 return
@@ -52,16 +44,6 @@ class ClientHandler:
             request_line, headers, body = parse_http_request(request_data)
             if not request_line:
                 self._send_bad_request()
-                self.metrics_store.record_request(
-                    client_ip=self.client_address[0],
-                    method="UNKNOWN",
-                    host="",
-                    status_code=400,
-                    latency_ms=0,
-                    bytes_sent=0,
-                    bytes_received=0,
-                    blocked=False,
-                )
                 return
 
             method, url, version = request_line
@@ -73,16 +55,6 @@ class ClientHandler:
             target_host, target_port, path = parse_target_from_request(url, headers)
             if not target_host:
                 self._send_bad_request()
-                self.metrics_store.record_request(
-                    client_ip=self.client_address[0],
-                    method=method,
-                    host="",
-                    status_code=400,
-                    latency_ms=0,
-                    bytes_sent=0,
-                    bytes_received=0,
-                    blocked=False,
-                )
                 return
 
             if self.filter_engine.is_blocked(target_host, url):
@@ -92,7 +64,7 @@ class ClientHandler:
                     url,
                 )
                 self._send_forbidden(target_host)
-                self._log_blocked_request(method=method, host=target_host)
+                self._log_blocked_request(method=method, url=url, host=target_host)
                 return
 
             # Convert absolute-form request line to origin-form.
@@ -115,13 +87,13 @@ class ClientHandler:
                 target_port=target_port,
                 request_bytes=forward_bytes,
                 method=method,
+                url=url,
             )
         except socket.timeout:
             self.logger.error("Timeout from client %s", self.client_address[0])
         except Exception as exc:
             self.logger.error("Client handling error: %s", exc)
         finally:
-            self.metrics_store.decrement_active_connections()
             self.client_socket.close()
 
     def _recv_http_request(self) -> bytes:
@@ -161,6 +133,7 @@ class ClientHandler:
         target_port: int,
         request_bytes: bytes,
         method: str,
+        url: str,
     ) -> None:
         """Forward the HTTP request to the destination server and relay response."""
         start_time = time.time()
@@ -188,31 +161,18 @@ class ClientHandler:
         except Exception as exc:
             self.logger.error("Upstream error for %s: %s", target_host, exc)
             self._send_bad_gateway()
-            latency_ms = int((time.time() - start_time) * 1000)
-            self.rate_controller.record_latency(latency_ms)
-            self.metrics_store.record_request(
-                client_ip=self.client_address[0],
-                method=method,
-                host=target_host,
-                status_code=502,
-                latency_ms=latency_ms,
-                bytes_sent=request_size,
-                bytes_received=response_size,
-                blocked=False,
-            )
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
-        self.rate_controller.record_latency(latency_ms)
-        self.metrics_store.record_request(
+        self.metrics_logger.log(
             client_ip=self.client_address[0],
             method=method,
+            url=url,
             host=target_host,
-            status_code=200,
             latency_ms=latency_ms,
-            bytes_sent=request_size,
-            bytes_received=response_size,
-            blocked=False,
+            request_bytes=request_size,
+            response_bytes=response_size,
+            blocked=0,
         )
 
     def _handle_connect(self, request_bytes: bytes, method: str, url: str) -> None:
@@ -220,16 +180,6 @@ class ClientHandler:
         target_host, target_port = self._parse_connect_target(url)
         if not target_host or target_port <= 0:
             self._send_bad_request()
-            self.metrics_store.record_request(
-                client_ip=self.client_address[0],
-                method=method,
-                host="",
-                status_code=400,
-                latency_ms=0,
-                bytes_sent=0,
-                bytes_received=0,
-                blocked=False,
-            )
             return
 
         if self.filter_engine.is_blocked(target_host, url):
@@ -239,25 +189,12 @@ class ClientHandler:
                 url,
             )
             self._send_forbidden(target_host)
-            self._log_blocked_request(method=method, host=target_host)
+            self._log_blocked_request(method=method, url=url, host=target_host)
             return
 
         start_time = time.time()
         request_size = len(request_bytes)
-        bytes_client_to_upstream = 0
-        bytes_upstream_to_client = 0
-
-        # Record CONNECT visibility immediately so HTTPS domains appear in dashboard.
-        self.metrics_store.record_request(
-            client_ip=self.client_address[0],
-            method=method,
-            host=target_host,
-            status_code=200,
-            latency_ms=0,
-            bytes_sent=0,
-            bytes_received=0,
-            blocked=False,
-        )
+        response_size = 0
 
         try:
             with socket.create_connection((target_host, target_port), timeout=10) as upstream_socket:
@@ -267,56 +204,22 @@ class ClientHandler:
                     target_host,
                     target_port,
                 )
-                if ENABLE_HTTPS_INSPECTION:
-                    try:
-                        (
-                            bytes_client_to_upstream,
-                            bytes_upstream_to_client,
-                        ) = self._inspect_tls_tunnel(upstream_socket, target_host)
-                    except Exception as exc:
-                        self.logger.error(
-                            "HTTPS inspection failed for %s:%s, falling back to TCP tunnel: %s",
-                            target_host,
-                            target_port,
-                            exc,
-                        )
-                        (
-                            bytes_client_to_upstream,
-                            bytes_upstream_to_client,
-                        ) = self._tunnel_bidirectional(upstream_socket)
-                else:
-                    (
-                        bytes_client_to_upstream,
-                        bytes_upstream_to_client,
-                    ) = self._tunnel_bidirectional(upstream_socket)
+                response_size = self._tunnel_bidirectional(upstream_socket)
         except Exception as exc:
             self.logger.error("CONNECT upstream error for %s:%s: %s", target_host, target_port, exc)
             self._send_bad_gateway()
-            latency_ms = int((time.time() - start_time) * 1000)
-            self.rate_controller.record_latency(latency_ms)
-            self.metrics_store.record_request(
-                client_ip=self.client_address[0],
-                method=method,
-                host=target_host,
-                status_code=502,
-                latency_ms=latency_ms,
-                bytes_sent=request_size,
-                bytes_received=bytes_upstream_to_client,
-                blocked=False,
-            )
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
-        self.rate_controller.record_latency(latency_ms)
-        self.metrics_store.record_request(
+        self.metrics_logger.log(
             client_ip=self.client_address[0],
             method=method,
+            url=url,
             host=target_host,
-            status_code=200,
             latency_ms=latency_ms,
-            bytes_sent=bytes_client_to_upstream,
-            bytes_received=bytes_upstream_to_client,
-            blocked=False,
+            request_bytes=request_size,
+            response_bytes=response_size,
+            blocked=0,
         )
 
     def _parse_connect_target(self, authority: str) -> Tuple[str, int]:
@@ -347,10 +250,9 @@ class ClientHandler:
 
         return host.strip(), port
 
-    def _tunnel_bidirectional(self, upstream_socket: socket.socket) -> Tuple[int, int]:
+    def _tunnel_bidirectional(self, upstream_socket: socket.socket) -> int:
         """Tunnel bytes between client and upstream until one side closes."""
-        bytes_client_to_upstream = 0
-        bytes_upstream_to_client = 0
+        tunneled_from_upstream = 0
         sockets = [self.client_socket, upstream_socket]
         self.client_socket.settimeout(None)
         upstream_socket.settimeout(None)
@@ -364,64 +266,10 @@ class ClientHandler:
                 dst = upstream_socket if src is self.client_socket else self.client_socket
                 data = src.recv(4096)
                 if not data:
-                    return bytes_client_to_upstream, bytes_upstream_to_client
+                    return tunneled_from_upstream
                 dst.sendall(data)
-                if src is self.client_socket:
-                    bytes_client_to_upstream += len(data)
-                else:
-                    bytes_upstream_to_client += len(data)
-
-    def _inspect_tls_tunnel(
-        self,
-        upstream_socket: socket.socket,
-        target_host: str,
-    ) -> Tuple[int, int]:
-        """Optional educational HTTPS inspection mode (disabled by default)."""
-        if not HTTPS_INSPECTION_CERT_FILE or not HTTPS_INSPECTION_KEY_FILE:
-            raise RuntimeError("Inspection certificate/key not configured")
-
-        client_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        client_context.load_cert_chain(
-            certfile=HTTPS_INSPECTION_CERT_FILE,
-            keyfile=HTTPS_INSPECTION_KEY_FILE,
-        )
-        upstream_context = ssl.create_default_context()
-
-        with client_context.wrap_socket(self.client_socket, server_side=True) as client_ssl, upstream_context.wrap_socket(
-            upstream_socket, server_hostname=target_host
-        ) as upstream_ssl:
-            client_ssl.settimeout(1.0)
-            upstream_ssl.settimeout(1.0)
-            bytes_client_to_upstream = 0
-            bytes_upstream_to_client = 0
-
-            while True:
-                try:
-                    request_chunk = client_ssl.recv(8192)
-                except socket.timeout:
-                    continue
-                if not request_chunk:
-                    break
-
-                bytes_client_to_upstream += len(request_chunk)
-                print("HTTPS REQUEST:", request_chunk.decode(errors="ignore"))
-                upstream_ssl.sendall(request_chunk)
-
-                idle_cycles = 0
-                while idle_cycles < 2:
-                    try:
-                        response_chunk = upstream_ssl.recv(8192)
-                    except socket.timeout:
-                        idle_cycles += 1
-                        continue
-                    if not response_chunk:
-                        return bytes_client_to_upstream, bytes_upstream_to_client
-
-                    bytes_upstream_to_client += len(response_chunk)
-                    client_ssl.sendall(response_chunk)
-                    idle_cycles = 0
-
-            return bytes_client_to_upstream, bytes_upstream_to_client
+                if src is upstream_socket:
+                    tunneled_from_upstream += len(data)
 
     def _send_forbidden(self, host: str) -> None:
         response = (
@@ -453,15 +301,15 @@ class ClientHandler:
         )
         self.client_socket.sendall(response.encode("utf-8"))
 
-    def _log_blocked_request(self, method: str, host: str) -> None:
-        """Log blocked request in metrics store."""
-        self.metrics_store.record_request(
+    def _log_blocked_request(self, method: str, url: str, host: str) -> None:
+        """Log blocked request to metrics."""
+        self.metrics_logger.log(
             client_ip=self.client_address[0],
             method=method,
+            url=url,
             host=host,
-            status_code=403,
             latency_ms=0,
-            bytes_sent=0,
-            bytes_received=0,
-            blocked=True,
+            request_bytes=0,
+            response_bytes=0,
+            blocked=1,
         )

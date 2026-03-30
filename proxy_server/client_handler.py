@@ -35,6 +35,8 @@ class ClientHandler:
     ) -> None:
         self.client_socket = client_socket
         self.client_address = client_address
+        self.client_ip, self.client_port = client_address
+        self.client_id = f"{self.client_ip}:{self.client_port}"
         self.filter_engine = filter_engine
         self.metrics_logger = metrics_logger
         self.logger = logger
@@ -86,8 +88,10 @@ class ClientHandler:
             if self.filter_engine.is_blocked(target_host, url):
                 reason = "blocked_domain"
                 self.logger.info(
-                    "Blocked request from %s to %s",
-                    self.client_address[0],
+                    "Blocked request_type=%s client_id=%s host=%s url=%s",
+                    method,
+                    self.client_id,
+                    target_host,
                     url,
                 )
                 latency_ms = int((time.time() - request_start_time) * 1000)
@@ -126,7 +130,10 @@ class ClientHandler:
                 url=url,
             )
         except socket.timeout:
-            self.logger.error("Timeout from client %s", self.client_address[0])
+            self.logger.error(
+                "Timeout request_type=UNKNOWN client_id=%s host=UNKNOWN",
+                self.client_id,
+            )
         except Exception as exc:
             self.logger.error("Client handling error: %s", exc)
         finally:
@@ -196,8 +203,9 @@ class ClientHandler:
             ) as upstream_socket:
                 upstream_socket.sendall(request_bytes)
                 self.logger.info(
-                    "Forwarded %s request to %s:%s",
+                    "Forwarded request_type=%s client_id=%s host=%s:%s",
                     method,
+                    self.client_id,
                     target_host,
                     target_port,
                 )
@@ -215,7 +223,7 @@ class ClientHandler:
 
         latency_ms = int((time.time() - start_time) * 1000)
         self.metrics_logger.log(
-            client_ip=self.client_address[0],
+            client_ip=self.client_ip,
             method=method,
             url=url,
             host=target_host,
@@ -236,8 +244,10 @@ class ClientHandler:
         if self.filter_engine.is_blocked(target_host, url):
             reason = "blocked_domain"
             self.logger.info(
-                "Blocked request from %s to %s",
-                self.client_address[0],
+                "Blocked request_type=%s client_id=%s host=%s url=%s",
+                method,
+                self.client_id,
+                target_host,
                 url,
             )
             latency_ms = int((time.time() - start_time) * 1000)
@@ -260,7 +270,8 @@ class ClientHandler:
             with socket.create_connection((target_host, target_port), timeout=10) as upstream_socket:
                 self.client_socket.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 self.logger.info(
-                    "Established CONNECT tunnel to %s:%s",
+                    "Established request_type=CONNECT client_id=%s host=%s:%s",
+                    self.client_id,
                     target_host,
                     target_port,
                 )
@@ -272,7 +283,7 @@ class ClientHandler:
 
         latency_ms = int((time.time() - start_time) * 1000)
         self.metrics_logger.log(
-            client_ip=self.client_address[0],
+            client_ip=self.client_ip,
             method=method,
             url=url,
             host=target_host,
@@ -388,14 +399,15 @@ class ClientHandler:
     ) -> None:
         """Log blocked request to metrics."""
         self.logger.info(
-            "Blocked request reason=%s client=%s host=%s url=%s",
+            "Blocked request_type=%s reason=%s client_id=%s host=%s url=%s",
+            method,
             reason,
-            self.client_address[0],
+            self.client_id,
             host,
             url,
         )
         self.metrics_logger.log(
-            client_ip=self.client_address[0],
+            client_ip=self.client_ip,
             method=method,
             url=url,
             host=host,

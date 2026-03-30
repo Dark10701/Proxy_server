@@ -57,7 +57,7 @@ class ClientHandler:
 
             method, url, version = request_line
 
-            if self._is_rate_limited(self.client_ip):
+            if self._is_rate_limited(self.client_address[0]):
                 reason = "rate_limited"
                 if method.upper() == "CONNECT":
                     target_host = url.split(":", 1)[0].strip("[]")

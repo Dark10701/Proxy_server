@@ -16,15 +16,17 @@ from http_parser import (
 from logger import ProxyLogger
 from metrics import MetricsLogger
 
-RATE_LIMIT_REQUESTS = 50
+RATE_LIMIT_REQUESTS = 200
 RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_WHITELIST = (
+    "google.com",
     "youtube.com",
     "googlevideo.com",
+    "ytimg.com",
     "amazon.in",
     "amazon.com",
 )
-_rate_limit_by_ip: Dict[str, list] = {}
+_rate_limit_by_client_host: Dict[Tuple[str, str], list] = {}
 _rate_limit_lock = threading.Lock()
 
 
@@ -74,7 +76,7 @@ class ClientHandler:
             else:
                 rate_limit_host, _, _ = parse_target_from_request(url, headers)
 
-            if self._is_rate_limited(self.client_address[0]):
+            if method.upper() != "CONNECT" and self._is_rate_limited(self.client_ip, rate_limit_host):
                 reason = "rate_limited"
                 if method.upper() == "CONNECT":
                     target_host = url.split(":", 1)[0].strip("[]")
@@ -156,18 +158,22 @@ class ClientHandler:
         finally:
             self.client_socket.close()
 
-    def _is_rate_limited(self, client_ip: str) -> bool:
-        """Return True when a client exceeds the configured request rate."""
+    def _is_rate_limited(self, client_ip: str, host: str) -> bool:
+        """Return True when a client exceeds the configured request rate for a host."""
+        normalized_host = (host or "").strip().lower().strip(".")
+        if not normalized_host or is_whitelisted(normalized_host):
+            return False
         now = time.time()
         window_start = now - RATE_LIMIT_WINDOW_SECONDS
+        key = (client_ip, normalized_host)
         with _rate_limit_lock:
-            timestamps = _rate_limit_by_ip.get(client_ip, [])
+            timestamps = _rate_limit_by_client_host.get(key, [])
             timestamps = [ts for ts in timestamps if ts >= window_start]
             if len(timestamps) >= RATE_LIMIT_REQUESTS:
-                _rate_limit_by_ip[client_ip] = timestamps
+                _rate_limit_by_client_host[key] = timestamps
                 return True
             timestamps.append(now)
-            _rate_limit_by_ip[client_ip] = timestamps
+            _rate_limit_by_client_host[key] = timestamps
             return False
 
     def _recv_http_request(self) -> bytes:

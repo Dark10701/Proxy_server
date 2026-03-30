@@ -6,3 +6,4 @@ bad-bytes.com
 facebook.com
 instagram.com
 flipkart.com
+neverssl.com

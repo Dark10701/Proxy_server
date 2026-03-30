@@ -18,8 +18,21 @@ from metrics import MetricsLogger
 
 RATE_LIMIT_REQUESTS = 50
 RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_WHITELIST = (
+    "youtube.com",
+    "googlevideo.com",
+    "amazon.in",
+    "amazon.com",
+)
 _rate_limit_by_ip: Dict[str, list] = {}
 _rate_limit_lock = threading.Lock()
+
+
+def is_whitelisted(host: str) -> bool:
+    host = (host or "").strip().lower().strip(".")
+    if not host:
+        return False
+    return any(host == domain or host.endswith(f".{domain}") for domain in RATE_LIMIT_WHITELIST)
 
 
 class ClientHandler:
@@ -56,6 +69,10 @@ class ClientHandler:
                 return
 
             method, url, version = request_line
+            if method.upper() == "CONNECT":
+                rate_limit_host = url.split(":", 1)[0].strip("[]")
+            else:
+                rate_limit_host, _, _ = parse_target_from_request(url, headers)
 
             if self._is_rate_limited(self.client_address[0]):
                 reason = "rate_limited"
@@ -69,7 +86,7 @@ class ClientHandler:
                     reason=reason,
                     method=method,
                     url=url,
-                    host=target_host,
+                    host=rate_limit_host,
                     latency_ms=latency_ms,
                     request_bytes=len(request_data),
                     response_bytes=response_size,

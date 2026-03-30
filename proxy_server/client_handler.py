@@ -74,8 +74,12 @@ class ClientHandler:
             else:
                 rate_limit_host, _, _ = parse_target_from_request(url, headers)
 
-            if not is_whitelisted(rate_limit_host) and self._is_rate_limited(self.client_ip):
+            if self._is_rate_limited(self.client_address[0]):
                 reason = "rate_limited"
+                if method.upper() == "CONNECT":
+                    target_host = url.split(":", 1)[0].strip("[]")
+                else:
+                    target_host, _, _ = parse_target_from_request(url, headers)
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_too_many_requests()
                 self._log_blocked_request(

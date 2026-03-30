@@ -56,6 +56,7 @@ class ClientHandler:
             method, url, version = request_line
 
             if self._is_rate_limited(self.client_address[0]):
+                reason = "rate_limited"
                 if method.upper() == "CONNECT":
                     target_host = url.split(":", 1)[0].strip("[]")
                 else:
@@ -63,6 +64,7 @@ class ClientHandler:
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_too_many_requests()
                 self._log_blocked_request(
+                    reason=reason,
                     method=method,
                     url=url,
                     host=target_host,
@@ -82,6 +84,7 @@ class ClientHandler:
                 return
 
             if self.filter_engine.is_blocked(target_host, url):
+                reason = "blocked_domain"
                 self.logger.info(
                     "Blocked request from %s to %s",
                     self.client_address[0],
@@ -90,6 +93,7 @@ class ClientHandler:
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_forbidden(target_host)
                 self._log_blocked_request(
+                    reason=reason,
                     method=method,
                     url=url,
                     host=target_host,
@@ -127,6 +131,20 @@ class ClientHandler:
             self.logger.error("Client handling error: %s", exc)
         finally:
             self.client_socket.close()
+
+    def _is_rate_limited(self, client_ip: str) -> bool:
+        """Return True when a client exceeds the configured request rate."""
+        now = time.time()
+        window_start = now - RATE_LIMIT_WINDOW_SECONDS
+        with _rate_limit_lock:
+            timestamps = _rate_limit_by_ip.get(client_ip, [])
+            timestamps = [ts for ts in timestamps if ts >= window_start]
+            if len(timestamps) >= RATE_LIMIT_REQUESTS:
+                _rate_limit_by_ip[client_ip] = timestamps
+                return True
+            timestamps.append(now)
+            _rate_limit_by_ip[client_ip] = timestamps
+            return False
 
     def _recv_http_request(self) -> bytes:
         """Receive the full HTTP request from the client socket."""
@@ -216,6 +234,7 @@ class ClientHandler:
             return
 
         if self.filter_engine.is_blocked(target_host, url):
+            reason = "blocked_domain"
             self.logger.info(
                 "Blocked request from %s to %s",
                 self.client_address[0],
@@ -224,6 +243,7 @@ class ClientHandler:
             latency_ms = int((time.time() - start_time) * 1000)
             response_size = self._send_forbidden(target_host)
             self._log_blocked_request(
+                reason=reason,
                 method=method,
                 url=url,
                 host=target_host,
@@ -323,6 +343,19 @@ class ClientHandler:
         self.client_socket.sendall(response_bytes)
         return len(response_bytes)
 
+    def _send_too_many_requests(self) -> int:
+        response = (
+            "HTTP/1.1 429 Too Many Requests\r\n"
+            "Content-Type: text/plain\r\n"
+            "Connection: close\r\n"
+            "Retry-After: 60\r\n"
+            "\r\n"
+            "Too many requests. Please try again later."
+        )
+        response_bytes = response.encode("utf-8")
+        self.client_socket.sendall(response_bytes)
+        return len(response_bytes)
+
     def _send_bad_request(self) -> None:
         response = (
             "HTTP/1.1 400 Bad Request\r\n"
@@ -345,6 +378,7 @@ class ClientHandler:
 
     def _log_blocked_request(
         self,
+        reason: str,
         method: str,
         url: str,
         host: str,

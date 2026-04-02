@@ -1,12 +1,7 @@
-"""Domain and keyword-based content filtering logic."""
-
 from pathlib import Path
 from typing import List
 
-
 class FilterEngine:
-    """Loads and checks blocked domains and keywords for filtering."""
-
     def __init__(self, blocked_domains_path: str) -> None:
         self.blocked_domains_path = Path(blocked_domains_path)
         self.blocked_domains = self._load_blocked_domains()

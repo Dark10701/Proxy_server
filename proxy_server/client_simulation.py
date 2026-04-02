@@ -1,13 +1,9 @@
-"""Simple multi-threaded client simulation for proxy load testing demos."""
-
 from __future__ import annotations
-
 import random
 import statistics
 import threading
 import time
 from dataclasses import dataclass, field
-
 import requests
 
 PROXY_URL = "http://127.0.0.1:8080"
@@ -25,7 +21,6 @@ TARGET_URLS = [
     "http://iana.org/",
 ]
 
-
 @dataclass
 class GlobalMetrics:
     total_requests: int = 0
@@ -40,7 +35,6 @@ metrics_lock = threading.Lock()
 
 
 def record_result(status_code: int | None, latency_ms: float | None, errored: bool) -> None:
-    """Thread-safe global metrics update."""
     with metrics_lock:
         metrics.total_requests += 1
         if errored:
@@ -55,9 +49,7 @@ def record_result(status_code: int | None, latency_ms: float | None, errored: bo
         if latency_ms is not None:
             metrics.latencies_ms.append(latency_ms)
 
-
 def client_worker(client_id: int, proxies: dict[str, str]) -> None:
-    """Simulate one client making multiple requests via the proxy."""
     session = requests.Session()
     session.proxies.update(proxies)
 
@@ -81,10 +73,8 @@ def client_worker(client_id: int, proxies: dict[str, str]) -> None:
         time.sleep(random.uniform(*SLEEP_BETWEEN_REQUESTS_RANGE))
 
     session.close()
-
-
+    
 def print_summary(duration_seconds: float) -> None:
-    """Display clean final metrics for demo/load-test runs."""
     with metrics_lock:
         latencies = list(metrics.latencies_ms)
         total = metrics.total_requests

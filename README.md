@@ -89,6 +89,14 @@ docker compose up
 | `http://localhost:8081/health` | Liveness |
 | `http://localhost:8081/ready` | Readiness; reports draining during shutdown |
 
+To verify the stack actually behaves as described — filtering and CONNECT through nginx, load distributed across instances, the cache shared between them, Prometheus targets up, and no traffic dropped when an instance goes down:
+
+```bash
+docker compose --profile verify up -d --build && ./scripts/verify_stack.sh
+```
+
+The `verify` profile adds a small origin that returns a cacheable response, which is what makes the shared-cache check meaningful. It is not started by a plain `docker compose up`.
+
 Optional CSV-backed dashboard, independent of the Prometheus stack:
 
 ```bash

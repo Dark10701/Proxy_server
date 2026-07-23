@@ -18,10 +18,13 @@ COPY dashboard/ ./dashboard/
 
 # Run unprivileged. The proxy binds 8080/8081/9100, all above 1024, so
 # it never needs root.
-RUN useradd --create-home --shell /usr/sbin/nologin proxy \
+#
+# Not named "proxy": Debian base images already ship a system user by
+# that name (uid 13), and useradd exits 9 on the collision.
+RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /app/logs \
-    && chown -R proxy:proxy /app
-USER proxy
+    && chown -R appuser:appuser /app
+USER appuser
 
 # 8080 proxy, 8081 health, 9100 prometheus
 EXPOSE 8080 8081 9100

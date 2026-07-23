@@ -4,7 +4,7 @@ import select
 import socket
 import threading
 import time
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
 from proxy_server.filter_engine import FilterEngine
@@ -15,10 +15,12 @@ from proxy_server.http_parser import (
 )
 from proxy_server.logger import ProxyLogger
 from proxy_server.metrics import MetricsLogger
+from proxy_server.scheduler import estimate_priority
 
 RATE_LIMIT_REQUESTS = 200
 RATE_LIMIT_WINDOW_SECONDS = 60
 MAX_HEADER_BYTES = 65536
+CLIENT_READ_TIMEOUT_SECONDS = 10
 # Idle tunnels are closed rather than held open forever; a thread parked on
 # select() with no traffic is a thread that never comes back.
 TUNNEL_IDLE_TIMEOUT_SECONDS = 300
@@ -51,6 +53,7 @@ class ClientHandler:
         filter_engine: FilterEngine,
         metrics_logger: MetricsLogger,
         logger: ProxyLogger,
+        rate_controller=None,
     ) -> None:
         self.client_socket = client_socket
         self.client_address = client_address
@@ -59,20 +62,65 @@ class ClientHandler:
         self.filter_engine = filter_engine
         self.metrics_logger = metrics_logger
         self.logger = logger
+        self.rate_controller = rate_controller
 
-    def handle(self) -> None:
-        """Main entry point for processing a client request."""
-        self.client_socket.settimeout(10)
+        # Populated by read_request() and consumed by serve().
+        self._request_data = b""
+        self._request_line = ()
+        self._headers = {}
+        self._body = b""
+        self._received_at = 0.0
+
+    def read_request(self) -> Optional[int]:
+        """Read and parse the request head.
+
+        Returns the scheduling priority, or None when the connection is
+        already finished with (empty read, malformed request, timeout).
+        In the None case the socket has been closed here.
+        """
+        self.client_socket.settimeout(CLIENT_READ_TIMEOUT_SECONDS)
         try:
             request_data = self._recv_http_request()
             if not request_data:
-                return
-            request_start_time = time.time()
+                self._close()
+                return None
 
             request_line, headers, body = parse_http_request(request_data)
             if not request_line:
                 self._send_bad_request()
-                return
+                self._close()
+                return None
+
+            self._request_data = request_data
+            self._request_line = request_line
+            self._headers = headers
+            self._body = body
+            self._received_at = time.time()
+            return estimate_priority(request_line[0], headers)
+        except socket.timeout:
+            self.logger.error(
+                "Timeout reading request client_id=%s", self.client_id
+            )
+            self._close()
+            return None
+        except Exception as exc:
+            self.logger.error("Error reading request from %s: %s", self.client_id, exc)
+            self._close()
+            return None
+
+    def handle(self) -> None:
+        """Read and serve in one call, for callers not using the scheduler."""
+        if self.read_request() is None:
+            return
+        self.serve()
+
+    def serve(self) -> None:
+        """Apply policy and forward the request already read."""
+        try:
+            request_data = self._request_data
+            request_start_time = self._received_at
+            request_line, headers = self._request_line, self._headers
+            body = self._body
 
             method, url, version = request_line
             if method.upper() == "CONNECT":
@@ -88,6 +136,23 @@ class ClientHandler:
                 response_size = self._send_too_many_requests()
                 self._log_blocked_request(
                     reason=reason,
+                    method=method,
+                    url=url,
+                    host=rate_limit_host,
+                    latency_ms=latency_ms,
+                    request_bytes=len(request_data),
+                    response_bytes=response_size,
+                )
+                return
+
+            # Adaptive admission control. The check above enforces a
+            # per-client policy; this one sheds load when the upstream is
+            # already slow, so the proxy degrades instead of queueing.
+            if self.rate_controller is not None and not self.rate_controller.allow_request():
+                latency_ms = int((time.time() - request_start_time) * 1000)
+                response_size = self._send_service_unavailable()
+                self._log_blocked_request(
+                    reason="rate_controller_shed",
                     method=method,
                     url=url,
                     host=rate_limit_host,
@@ -158,7 +223,14 @@ class ClientHandler:
         except Exception as exc:
             self.logger.error("Client handling error: %s", exc)
         finally:
+            self._close()
+
+    def _close(self) -> None:
+        """Close the client socket, tolerating an already-closed one."""
+        try:
             self.client_socket.close()
+        except OSError:
+            pass
 
     def _is_rate_limited(self, client_ip: str, host: str) -> bool:
         """Return True when a client exceeds the configured request rate for a host."""
@@ -255,6 +327,12 @@ class ClientHandler:
             return
 
         latency_ms = int((time.time() - start_time) * 1000)
+        # Feed the observed upstream latency back so the controller can
+        # adapt. Only forwarded HTTP requests count: a CONNECT tunnel's
+        # duration reflects how long the client kept it open, not how
+        # fast the upstream is.
+        if self.rate_controller is not None:
+            self.rate_controller.record_latency(latency_ms)
         self.metrics_logger.log(
             client_ip=self.client_ip,
             method=method,
@@ -402,6 +480,19 @@ class ClientHandler:
             "Retry-After: 60\r\n"
             "\r\n"
             "Too many requests. Please try again later."
+        )
+        response_bytes = response.encode("utf-8")
+        self.client_socket.sendall(response_bytes)
+        return len(response_bytes)
+
+    def _send_service_unavailable(self) -> int:
+        response = (
+            "HTTP/1.1 503 Service Unavailable\r\n"
+            "Content-Type: text/plain\r\n"
+            "Connection: close\r\n"
+            "Retry-After: 1\r\n"
+            "\r\n"
+            "Proxy is shedding load. Please retry shortly."
         )
         response_bytes = response.encode("utf-8")
         self.client_socket.sendall(response_bytes)

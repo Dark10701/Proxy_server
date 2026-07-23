@@ -18,6 +18,10 @@ from proxy_server.metrics import MetricsLogger
 
 RATE_LIMIT_REQUESTS = 200
 RATE_LIMIT_WINDOW_SECONDS = 60
+MAX_HEADER_BYTES = 65536
+# Idle tunnels are closed rather than held open forever; a thread parked on
+# select() with no traffic is a thread that never comes back.
+TUNNEL_IDLE_TIMEOUT_SECONDS = 300
 RATE_LIMIT_WHITELIST = (
     "google.com",
     "youtube.com",
@@ -76,12 +80,10 @@ class ClientHandler:
             else:
                 rate_limit_host, _, _ = parse_target_from_request(url, headers)
 
-            if method.upper() != "CONNECT" and self._is_rate_limited(self.client_ip, rate_limit_host):
+            # Applies to CONNECT too: a 429 sent before the tunnel is
+            # established is a valid response to the CONNECT request itself.
+            if self._is_rate_limited(self.client_ip, rate_limit_host):
                 reason = "rate_limited"
-                if method.upper() == "CONNECT":
-                    target_host = url.split(":", 1)[0].strip("[]")
-                else:
-                    target_host, _, _ = parse_target_from_request(url, headers)
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_too_many_requests()
                 self._log_blocked_request(
@@ -180,12 +182,20 @@ class ClientHandler:
         """Receive the full HTTP request from the client socket."""
         buffer = bytearray()
         while b"\r\n\r\n" not in buffer:
+            if len(buffer) > MAX_HEADER_BYTES:
+                # Previously this broke out of the loop and parsed the
+                # truncated buffer as if it were a complete request.
+                self.logger.error(
+                    "Header block exceeded %s bytes client_id=%s",
+                    MAX_HEADER_BYTES,
+                    self.client_id,
+                )
+                self._send_headers_too_large()
+                return b""
             chunk = self.client_socket.recv(4096)
             if not chunk:
                 return b""
             buffer.extend(chunk)
-            if len(buffer) > 65536:
-                break
 
         header_bytes, _, remaining = buffer.partition(b"\r\n\r\n")
         headers_text = header_bytes.decode("iso-8859-1", errors="replace")
@@ -352,9 +362,16 @@ class ClientHandler:
         upstream_socket.settimeout(None)
 
         while True:
-            readable, _, _ = select.select(sockets, [], [], 30)
+            readable, _, _ = select.select(
+                sockets, [], [], TUNNEL_IDLE_TIMEOUT_SECONDS
+            )
             if not readable:
-                continue
+                self.logger.info(
+                    "Tunnel idle timeout client_id=%s after %ss",
+                    self.client_id,
+                    TUNNEL_IDLE_TIMEOUT_SECONDS,
+                )
+                return tunneled_from_upstream
 
             for src in readable:
                 dst = upstream_socket if src is self.client_socket else self.client_socket
@@ -385,6 +402,18 @@ class ClientHandler:
             "Retry-After: 60\r\n"
             "\r\n"
             "Too many requests. Please try again later."
+        )
+        response_bytes = response.encode("utf-8")
+        self.client_socket.sendall(response_bytes)
+        return len(response_bytes)
+
+    def _send_headers_too_large(self) -> int:
+        response = (
+            "HTTP/1.1 431 Request Header Fields Too Large\r\n"
+            "Content-Type: text/plain\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "Request header block too large."
         )
         response_bytes = response.encode("utf-8")
         self.client_socket.sendall(response_bytes)

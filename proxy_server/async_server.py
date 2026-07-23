@@ -12,6 +12,7 @@ from proxy_server.async_scheduler import AsyncScheduler
 from proxy_server.cache import HTTPCache
 from proxy_server.client_handler import MAX_HEADER_BYTES
 from proxy_server.filter_engine import FilterEngine
+from proxy_server.health import HealthServer
 from proxy_server.logger import ProxyLogger
 from proxy_server.observability import Telemetry
 from proxy_server.rate_controller import RateController
@@ -36,6 +37,7 @@ class AsyncProxyServer:
         cache_enabled: bool = True,
         redis_url: str = "redis://127.0.0.1:6379/0",
         metrics_port: Optional[int] = 9100,
+        health_port: Optional[int] = 8081,
     ) -> None:
         self.host = host
         self.port = port
@@ -55,6 +57,8 @@ class AsyncProxyServer:
 
         self.telemetry = Telemetry()
         self.metrics_port = metrics_port
+        self.health_port = health_port
+        self.health: Optional[HealthServer] = None
 
         self._server: Optional[asyncio.AbstractServer] = None
         self._gauge_task: Optional[asyncio.Task] = None
@@ -127,6 +131,15 @@ class AsyncProxyServer:
         self._prune_task = asyncio.create_task(self._prune_loop())
         self._gauge_task = asyncio.create_task(self._gauge_loop())
 
+        if self.health_port:
+            self.health = HealthServer(
+                port=self.health_port, status_provider=self.stats
+            )
+            await self.health.start()
+            self.logger.info(
+                "Health endpoint on http://0.0.0.0:%s/health", self.health_port
+            )
+
         if self.metrics_port:
             try:
                 self.telemetry.start_server(self.metrics_port)
@@ -151,6 +164,12 @@ class AsyncProxyServer:
             await self._server.serve_forever()
 
     async def stop(self) -> None:
+        # Report not-ready before closing the listener, so a load
+        # balancer drains this instance instead of racing it.
+        if self.health is not None:
+            self.health.begin_draining()
+            await asyncio.sleep(0)
+
         for attr in ("_prune_task", "_gauge_task"):
             task = getattr(self, attr, None)
             if task is not None:
@@ -171,6 +190,10 @@ class AsyncProxyServer:
             self.metrics_logger = None
 
         await self.cache.close()
+
+        if self.health is not None:
+            await self.health.stop()
+            self.health = None
 
     @property
     def port_in_use(self) -> int:

@@ -1,4 +1,4 @@
-"""Entry point for the multi-threaded HTTP proxy server."""
+"""Entry point for the HTTP proxy server (async by default)."""
 
 import argparse
 import sys
@@ -17,7 +17,7 @@ from proxy_server.server import ProxyServer  # noqa: E402
 def parse_args(argv=None) -> argparse.Namespace:
     """Parse CLI arguments for proxy runtime configuration."""
     parser = argparse.ArgumentParser(
-        description="Multi-Threaded HTTP Proxy Server with Content Filtering"
+        description="HTTP/HTTPS forward proxy with filtering, caching and metrics"
     )
     parser.add_argument(
         "--host", default="0.0.0.0", help="IP address to listen on (default: 0.0.0.0)"

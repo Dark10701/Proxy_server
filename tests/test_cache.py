@@ -233,3 +233,28 @@ def test_oversized_entries_are_not_stored():
         return await cache.set("k", b"x" * 100, 60)
 
     assert run(scenario()) is False
+
+
+# --- default keyspace safety ---------------------------------------
+
+
+def test_default_redis_url_avoids_database_zero():
+    """A shared local Redis must not be polluted just by starting up.
+
+    Developer machines commonly already run a Redis on 6379 for some
+    other project, and that project will be using db 0. Defaulting there
+    means this proxy writes into their keyspace, consumes their memory,
+    and under allkeys-lru can evict their data.
+    """
+    from proxy_server.cache import DEFAULT_REDIS_DB, DEFAULT_REDIS_URL
+
+    assert DEFAULT_REDIS_DB != 0
+    assert DEFAULT_REDIS_URL.endswith(f"/{DEFAULT_REDIS_DB}")
+    assert HTTPCache().url == DEFAULT_REDIS_URL
+
+
+def test_cli_default_matches_the_safe_url():
+    from proxy_server.cache import DEFAULT_REDIS_URL
+    from proxy_server.main import parse_args
+
+    assert parse_args([]).redis_url == DEFAULT_REDIS_URL

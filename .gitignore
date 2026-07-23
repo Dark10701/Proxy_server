@@ -3,3 +3,12 @@ __pycache__/
 logs/
 *.pyc
 proxy_server/logs/
+
+# Local tooling / agent worktrees
+.claude/
+
+# Test and packaging artefacts
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/

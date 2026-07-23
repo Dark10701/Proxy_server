@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proxy Metrics</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --line: #262b38;
+    --text: #e6e9ef; --muted: #8b93a7;
+    --ok: #4ade80; --block: #f87171; --accent: #60a5fa;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6ec;
+      --text: #14171f; --muted: #616a7d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .status { font-size: 12px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--ok); }
+  .dot.down { background: var(--block); }
+  .note {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    padding: 10px 14px; border-radius: 6px; color: var(--muted); margin-bottom: 18px;
+  }
+  .note[hidden] { display: none; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .tile .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .tile .value { font-size: 24px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .value small { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  .panel h2 { font-size: 13px; margin: 0 0 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  svg { width: 100%; height: 180px; display: block; }
+  .bar-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .bar-host { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { grid-column: 1 / -1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar-fill.blocked { background: var(--block); }
+  .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow-x: auto; margin-top: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.url { max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid currentColor; }
+  .pill.ok { color: var(--ok); }
+  .pill.blocked { color: var(--block); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Proxy Metrics</h1>
+  <span class="count" id="source"></span>
+  <span class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></span>
+</header>
+
+<div class="note" id="note" hidden></div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">Total requests</div><div class="value" id="total">–</div></div>
+  <div class="tile"><div class="label">Allowed</div><div class="value" id="allowed">–</div></div>
+  <div class="tile"><div class="label">Blocked</div><div class="value" id="blocked">– <small id="blockRate"></small></div></div>
+  <div class="tile"><div class="label">Avg latency</div><div class="value" id="avgLatency">–</div></div>
+  <div class="tile"><div class="label">p50 / p95</div><div class="value" id="percentiles">–</div></div>
+  <div class="tile"><div class="label">Data relayed</div><div class="value" id="bytes">–</div></div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Latency, last 100 allowed requests</h2>
+    <svg id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Latency over recent requests"></svg>
+    <div class="empty" id="chartEmpty" hidden>No latency data yet.</div>
+  </div>
+  <div class="panel">
+    <h2>Top domains</h2>
+    <div id="domains"></div>
+    <div class="empty" id="domainsEmpty" hidden>No traffic yet.</div>
+  </div>
+</div>
+
+<div class="panel table-wrap">
+  <h2>Recent requests</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Client</th><th>Method</th><th>Host</th><th>URL</th><th>Latency</th><th>Bytes</th><th>Status</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="rowsEmpty" hidden>Nothing recorded yet.</div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script>
+const REFRESH_MS = {{ (refresh_seconds * 1000) | int }};
+
+function setStatus(state, text) {
+  const dot = document.getElementById('dot');
+  dot.className = 'dot' + (state ? ' ' + state : '');
+  document.getElementById('statusText').textContent = text;
+}
+
+function fmtBytes(n) {
+  if (!n) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0, v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+}
+
+function toggle(id, show) { document.getElementById(id).hidden = !show; }
+
+function drawChart(series) {
+  const svg = document.getElementById('chart');
+  const points = series.filter(p => !p.blocked);
+  toggle('chartEmpty', points.length === 0);
+  svg.style.display = points.length ? 'block' : 'none';
+  if (!points.length) { svg.innerHTML = ''; return; }
+
+  const W = 600, H = 180, pad = 8;
+  const max = Math.max(...points.map(p => p.latency_ms), 1);
+  const step = points.length > 1 ? (W - pad * 2) / (points.length - 1) : 0;
+  const coords = points.map((p, i) => [
+    pad + i * step,
+    H - pad - (p.latency_ms / max) * (H - pad * 2)
+  ]);
+
+  const line = coords.map(c => c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const area = `${pad},${H - pad} ${line} ${(pad + (points.length - 1) * step).toFixed(1)},${H - pad}`;
+
+  svg.innerHTML =
+    `<polygon points="${area}" fill="var(--accent)" opacity="0.12"></polygon>` +
+    `<polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
+       stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>` +
+    `<text x="${pad}" y="14" fill="var(--muted)" font-size="11">peak ${max.toFixed(0)} ms</text>`;
+}
+
+function drawDomains(domains) {
+  const box = document.getElementById('domains');
+  toggle('domainsEmpty', domains.length === 0);
+  if (!domains.length) { box.innerHTML = ''; return; }
+  const max = Math.max(...domains.map(d => d.requests), 1);
+  box.innerHTML = domains.map(d => {
+    const pct = (d.requests / max) * 100;
+    const allBlocked = d.blocked === d.requests && d.requests > 0;
+    return `<div class="bar-row">
+        <span class="bar-host" title="${esc(d.host)}">${esc(d.host)}</span>
+        <span class="count">${d.requests}${d.blocked ? ' · ' + d.blocked + ' blocked' : ''}</span>
+        <span class="bar-track"><span class="bar-fill${allBlocked ? ' blocked' : ''}" style="width:${pct}%"></span></span>
+      </div>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function drawRows(rows) {
+  toggle('rowsEmpty', rows.length === 0);
+  document.getElementById('rows').innerHTML = rows.map(r => `
+    <tr>
+      <td>${esc(r.timestamp)}</td>
+      <td>${esc(r.client_ip)}</td>
+      <td>${esc(r.method)}</td>
+      <td>${esc(r.host)}</td>
+      <td class="url" title="${esc(r.url)}">${esc(r.url)}</td>
+      <td>${r.latency_ms} ms</td>
+      <td>${fmtBytes(r.response_bytes)}</td>
+      <td><span class="pill ${r.blocked ? 'blocked' : 'ok'}">${r.blocked ? 'blocked' : 'ok'}</span></td>
+    </tr>`).join('');
+}
+
+function render(d) {
+  document.getElementById('source').textContent = d.metrics_path || '';
+  const note = document.getElementById('note');
+  note.hidden = !d.message;
+  note.textContent = d.message || '';
+
+  document.getElementById('total').textContent = d.total_requests;
+  document.getElementById('allowed').textContent = d.allowed_requests;
+  document.getElementById('blocked').textContent = d.blocked_requests;
+  document.getElementById('blockRate').textContent = d.total_requests ? `(${d.block_rate_pct}%)` : '';
+  document.getElementById('avgLatency').textContent = d.avg_latency_ms + ' ms';
+  document.getElementById('percentiles').textContent = `${d.p50_latency_ms} / ${d.p95_latency_ms} ms`;
+  document.getElementById('bytes').textContent = fmtBytes(d.total_response_bytes);
+
+  drawChart(d.latency_series || []);
+  drawDomains(d.top_domains || []);
+  drawRows(d.recent || []);
+}
+
+async function pollOnce() {
+  try {
+    const res = await fetch('/api/metrics');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    render(await res.json());
+    setStatus('live', 'polling');
+  } catch (err) {
+    setStatus('down', 'dashboard unreachable');
+  }
+}
+
+// Prefer websockets; fall back to polling the JSON endpoint if the
+// Socket.IO client did not load or the transport never connects.
+if (typeof io === 'function') {
+  const socket = io({ transports: ['websocket', 'polling'] });
+  socket.on('connect', () => setStatus('live', 'live'));
+  socket.on('disconnect', () => setStatus('down', 'disconnected'));
+  socket.on('metrics_update', render);
+  setTimeout(() => { if (!socket.connected) { pollOnce(); setInterval(pollOnce, REFRESH_MS); } }, 3000);
+} else {
+  pollOnce();
+  setInterval(pollOnce, REFRESH_MS);
+}
+pollOnce();
+</script>
+</body>
+</html>

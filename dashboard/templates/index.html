@@ -203,7 +203,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>
       </span>
     </div>
-    <div class="value" id="blocked">– <small id="blockRate"></small></div>
+    <div class="value"><span id="blocked">–</span> <small id="blockRate"></small></div>
     <div class="delta">by domain &amp; keyword policy</div>
   </div>
   <div class="card kpi">
@@ -386,23 +386,33 @@ function drawRows(rows) {
   }).join('');
 }
 
-function render(d) {
-  document.getElementById('source').textContent = d.metrics_path || '';
-  const note = document.getElementById('note');
-  note.hidden = !d.message; note.textContent = d.message || '';
+// Guarded setters: a missing element must never throw and take the
+// whole render (and the connection status) down with it.
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+function setHTML(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = value;
+}
 
-  document.getElementById('total').textContent = fmtNum(d.total_requests);
-  document.getElementById('allowed').textContent = fmtNum(d.allowed_requests);
-  document.getElementById('blocked').textContent = fmtNum(d.blocked_requests);
-  document.getElementById('blockRate').textContent = d.total_requests ? `(${d.block_rate_pct}%)` : '';
+function render(d) {
+  setText('source', d.metrics_path || '');
+  const note = document.getElementById('note');
+  if (note) { note.hidden = !d.message; note.textContent = d.message || ''; }
+
+  setText('total', fmtNum(d.total_requests));
+  setText('allowed', fmtNum(d.allowed_requests));
+  setText('blocked', fmtNum(d.blocked_requests));
+  setText('blockRate', d.total_requests ? `(${d.block_rate_pct}%)` : '');
   const allowedPct = d.total_requests ? Math.round(d.allowed_requests / d.total_requests * 100) : 0;
-  document.getElementById('allowedPct').textContent = allowedPct + '%';
-  document.getElementById('avgLatency').textContent = (d.avg_latency_ms || 0) + ' ms';
-  document.getElementById('p50').textContent = (d.p50_latency_ms || 0) + ' ms';
-  document.getElementById('p95').textContent = (d.p95_latency_ms || 0) + ' ms';
-  document.getElementById('bytes').textContent = fmtBytes(d.total_response_bytes);
-  document.getElementById('throughput').innerHTML =
-    d.total_requests ? `<b>${fmtNum(d.allowed_requests)}</b> served` : '&nbsp;';
+  setText('allowedPct', allowedPct + '%');
+  setText('avgLatency', (d.avg_latency_ms || 0) + ' ms');
+  setText('p50', (d.p50_latency_ms || 0) + ' ms');
+  setText('p95', (d.p95_latency_ms || 0) + ' ms');
+  setText('bytes', fmtBytes(d.total_response_bytes));
+  setHTML('throughput', d.total_requests ? `<b>${fmtNum(d.allowed_requests)}</b> served` : '&nbsp;');
 
   drawChart(d.latency_series);
   drawRing(d.cache_hit_ratio_pct, d.cache_hits, d.cache_misses);
@@ -411,12 +421,19 @@ function render(d) {
 }
 
 async function pollOnce() {
+  let data;
   try {
     const res = await fetch('/api/metrics');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    render(await res.json());
-    setStatus('live', 'polling');
-  } catch (e) { setStatus('down', 'dashboard unreachable'); }
+    data = await res.json();
+  } catch (e) {
+    // Only a genuine fetch failure is a connectivity problem.
+    setStatus('down', 'dashboard unreachable');
+    return;
+  }
+  // A render error is a bug, not a disconnect -- surface it, don't hide it.
+  try { render(data); setStatus('live', 'polling'); }
+  catch (e) { setStatus('down', 'render error'); console.error('render failed:', e); }
 }
 
 // Prefer websockets; fall back to polling the JSON endpoint if the

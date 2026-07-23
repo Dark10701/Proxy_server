@@ -4,10 +4,10 @@ import socket
 import threading
 from typing import Tuple
 
-from client_handler import ClientHandler
-from filter_engine import FilterEngine
-from logger import ProxyLogger
-from metrics import MetricsLogger
+from proxy_server.client_handler import ClientHandler
+from proxy_server.filter_engine import FilterEngine
+from proxy_server.logger import ProxyLogger
+from proxy_server.metrics import MetricsLogger
 
 
 class ProxyServer:

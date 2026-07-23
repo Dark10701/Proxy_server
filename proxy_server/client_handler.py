@@ -7,14 +7,14 @@ import time
 from typing import Dict, Tuple
 from urllib.parse import urlsplit
 
-from filter_engine import FilterEngine
-from http_parser import (
+from proxy_server.filter_engine import FilterEngine
+from proxy_server.http_parser import (
     build_forward_request,
     parse_http_request,
     parse_target_from_request,
 )
-from logger import ProxyLogger
-from metrics import MetricsLogger
+from proxy_server.logger import ProxyLogger
+from proxy_server.metrics import MetricsLogger
 
 RATE_LIMIT_REQUESTS = 200
 RATE_LIMIT_WINDOW_SECONDS = 60

@@ -30,6 +30,10 @@ x-proxy-common: &proxy-common
   stop_grace_period: 20s
 
 services:
+  # This Redis is dedicated to the stack and shares its keyspace with
+  # nothing, so the proxies are pointed explicitly at db 0. The CLI
+  # default is a non-zero database instead, because a local Redis on a
+  # developer machine usually belongs to some other project.
   redis:
     image: redis:7-alpine
     restart: unless-stopped

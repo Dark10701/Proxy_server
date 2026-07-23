@@ -11,6 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from proxy_server import paths  # noqa: E402
+from proxy_server.cache import DEFAULT_REDIS_URL  # noqa: E402
 from proxy_server.server import ProxyServer  # noqa: E402
 
 
@@ -69,8 +70,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--redis-url",
-        default="redis://127.0.0.1:6379/0",
-        help="Redis URL for the response cache (default: %(default)s)",
+        default=DEFAULT_REDIS_URL,
+        help=(
+            "Redis URL for the response cache (default: %(default)s). "
+            "The default deliberately avoids database 0, which is what "
+            "any other project sharing a local Redis will be using"
+        ),
     )
     parser.add_argument(
         "--metrics-port",

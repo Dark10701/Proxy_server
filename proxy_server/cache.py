@@ -45,6 +45,16 @@ MAX_CACHEABLE_BYTES = 1024 * 1024  # 1 MiB
 DEFAULT_NAMESPACE = "proxycache:v1"
 UNAVAILABLE_RETRY_SECONDS = 5.0
 
+# Deliberately not database 0. A developer machine very often already has
+# a Redis on 6379 belonging to some other project, and db 0 is what that
+# project will be using. Defaulting there means simply starting this
+# proxy writes cache entries into someone else's keyspace, consumes
+# their memory, and — under the usual allkeys-lru policy — can evict
+# their data. A dedicated index makes the default collision-free while
+# still working out of the box against a local Redis.
+DEFAULT_REDIS_DB = 11
+DEFAULT_REDIS_URL = f"redis://127.0.0.1:6379/{DEFAULT_REDIS_DB}"
+
 
 def parse_cache_control(value: str) -> Dict[str, Optional[str]]:
     """Parse a Cache-Control header into a directive dict."""
@@ -169,7 +179,7 @@ class HTTPCache:
 
     def __init__(
         self,
-        url: str = "redis://127.0.0.1:6379/0",
+        url: str = DEFAULT_REDIS_URL,
         namespace: str = DEFAULT_NAMESPACE,
         max_entry_bytes: int = MAX_CACHEABLE_BYTES,
         enabled: bool = True,

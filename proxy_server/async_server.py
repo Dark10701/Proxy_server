@@ -9,7 +9,7 @@ from proxy_server.async_handler import (
 )
 from proxy_server.async_metrics import AsyncMetricsLogger
 from proxy_server.async_scheduler import AsyncScheduler
-from proxy_server.cache import HTTPCache
+from proxy_server.cache import DEFAULT_REDIS_URL, HTTPCache
 from proxy_server.client_handler import MAX_HEADER_BYTES
 from proxy_server.filter_engine import FilterEngine
 from proxy_server.health import HealthServer
@@ -35,7 +35,7 @@ class AsyncProxyServer:
         max_queued: int = 512,
         adaptive_rate_limit: bool = True,
         cache_enabled: bool = True,
-        redis_url: str = "redis://127.0.0.1:6379/0",
+        redis_url: str = DEFAULT_REDIS_URL,
         metrics_port: Optional[int] = 9100,
         health_port: Optional[int] = 8081,
         rate_limit_requests: int = 200,

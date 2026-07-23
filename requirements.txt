@@ -1,4 +1,9 @@
-# The proxy itself runs on the standard library alone.
-# This dependency is only needed by proxy_server/client_simulation.py,
-# the load-generator script.
+# The proxy itself (proxy_server/) runs on the standard library alone.
+# Everything below is for the optional extras.
+
+# dashboard/ - Flask + SocketIO metrics UI
+Flask>=3.0
+Flask-SocketIO>=5.3
+
+# proxy_server/client_simulation.py - load-generator script
 requests>=2.31.0

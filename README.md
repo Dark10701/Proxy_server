@@ -59,54 +59,136 @@ accept ──▶ read + parse head ──▶ per-client rate limit ──▶ adm
 
 ## Quickstart
 
+Requires Python 3.9+.
+
 ```bash
 pip install -r requirements.txt
+python -m proxy_server.main --host 127.0.0.1 --port 8080
 ```
 
-Run the proxy:
+That's it — the proxy has no mandatory dependencies. Redis and Prometheus are optional; without them the cache and the metrics endpoint simply switch off and traffic still flows.
+
+### One command to see it working
+
+To watch it live with **zero setup**, one command starts the proxy, the dashboard, a bundled origin and a bundled Redis, generates a little demo traffic, and opens the dashboard in your browser:
 
 ```bash
-python -m proxy_server.main --host 0.0.0.0 --port 8080
+pip install -r requirements.txt flask flask-socketio
+python scripts/run_local.py
 ```
 
-Send traffic through it:
+Then the dashboard is at **http://localhost:5000**, already populated. Everything is loopback-only and needs no internet — the "allowed" traffic goes to the bundled origin and the "blocked" traffic is refused by the filter locally. Press `Ctrl-C` to stop everything at once. Add `--no-demo-traffic` to drive it yourself, or `--no-browser` to skip opening a tab.
+
+In another terminal, send a request through it:
 
 ```bash
-curl -x http://127.0.0.1:8080 http://example.org
+curl -x http://127.0.0.1:8080 http://httpforever.com/
 ```
 
-The full stack — 3 proxy instances behind nginx, plus Redis, Prometheus and Grafana:
+You should get back a page. To stop the proxy, press `Ctrl-C`.
+
+## Testing it
+
+### 1. Run the test suite
+
+The fastest way to confirm everything works. No proxy needs to be running — the tests start their own.
 
 ```bash
-docker compose up
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Expected: `117 passed`.
+
+### 2. Try it by hand
+
+Start the proxy (`python -m proxy_server.main --host 127.0.0.1 --port 8080`), then in another terminal:
+
+```bash
+# Plain HTTP forwarding — expect 200
+curl -x http://127.0.0.1:8080 http://httpforever.com/
+
+# HTTPS through a CONNECT tunnel — expect 200 and real content
+curl -x http://127.0.0.1:8080 https://example.org/
+
+# A blocked domain — expect "403 Forbidden"
+curl -i -x http://127.0.0.1:8080 http://facebook.com/
+```
+
+> **Heads-up on the block list.** `example.com` and `neverssl.com` are in the default [blocklist](proxy_server/config/blocked_domains.txt), so testing with those returns 403 by design — that is the filter working, not a failure. Use `httpforever.com` (a plain-HTTP test site) or `example.org` for the "it forwards" test, and a listed domain like `facebook.com` for the "it blocks" test. The full default list is `example.com`, `facebook.com`, `instagram.com`, `flipkart.com`, `neverssl.com`, and a few test entries; URLs containing `adult`, `malware`, or `phishing` are also blocked by keyword.
+
+Edit `proxy_server/config/blocked_domains.txt` (one domain per line) to change what is blocked, and restart.
+
+### 3. See what it's doing
+
+With the proxy running, in another terminal:
+
+```bash
+# Health and readiness (JSON)
+curl http://127.0.0.1:8081/health
+curl http://127.0.0.1:8081/ready
+
+# Live Prometheus metrics after you've sent some traffic
+curl http://127.0.0.1:9100/metrics | grep proxy_
+```
+
+Or the CSV-backed web dashboard, which runs as a separate process and needs no Prometheus:
+
+```bash
+python dashboard/app.py    # then open http://127.0.0.1:5000
+```
+
+### 4. Testing the cache
+
+The cache needs Redis, and only stores responses the origin marks cacheable (`Cache-Control: max-age=...` or `Expires`). Sites like `httpforever.com` send no such headers, so nothing will be cached — that is correct behaviour, not a bug. To see the cache actually work end to end, use the Docker stack below, whose `verify` profile includes a cacheable origin.
+
+```bash
+# With a local Redis running, caching turns on automatically:
+python -m proxy_server.main --port 8080
+# The default connects to redis://127.0.0.1:6379/11 — database 11, not 0,
+# so it never collides with another project's Redis on the same machine.
+
+# To run without any cache at all:
+python -m proxy_server.main --port 8080 --no-cache
+```
+
+### 5. The full distributed stack
+
+Three proxy instances behind an nginx load balancer, plus Redis, Prometheus and Grafana. Requires Docker.
+
+```bash
+docker compose up --build          # add -d to run in the background
 ```
 
 | Endpoint | Purpose |
 |---|---|
-| `http://localhost:8080` | Proxy, load balanced across instances |
+| `http://localhost:8080` | Proxy, load balanced across the three instances |
 | `http://localhost:9090` | Prometheus |
 | `http://localhost:3000` | Grafana (admin/admin, dashboard pre-provisioned) |
 | `http://localhost:8081/health` | Liveness |
 | `http://localhost:8081/ready` | Readiness; reports draining during shutdown |
 
-To verify the stack actually behaves as described — filtering and CONNECT through nginx, load distributed across instances, the cache shared between them, Prometheus targets up, and no traffic dropped when an instance goes down:
+Send traffic through the load balancer exactly as before:
 
 ```bash
-docker compose --profile verify up -d --build && ./scripts/verify_stack.sh
+curl -x http://127.0.0.1:8080 http://httpforever.com/
 ```
 
-The `verify` profile adds a small origin that returns a cacheable response, which is what makes the shared-cache check meaningful. It is not started by a plain `docker compose up`.
+Then open Grafana at `http://localhost:3000` (admin/admin) to watch throughput, latency percentiles and cache hit ratio.
 
-Optional CSV-backed dashboard, independent of the Prometheus stack:
+To have the stack **prove** its own claims — filtering and CONNECT through nginx, load spread across all three instances, the cache genuinely shared between them, Prometheus targets up, and zero dropped requests when an instance is stopped:
 
 ```bash
-python dashboard/app.py
+docker compose --profile verify up -d --build
+./scripts/verify_stack.sh
 ```
 
-Tests:
+Expected: `passed: 11   failed: 0`. The `verify` profile adds a small origin that returns a cacheable response, which is what makes the shared-cache check meaningful; it is not started by a plain `docker compose up`.
+
+Tear the stack down with:
 
 ```bash
-python -m pytest
+docker compose --profile verify down -v
 ```
 
 ## Benchmarks

@@ -5,223 +5,439 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Proxy Metrics</title>
 <style>
+  /* Dark glassmorphism, styled after the Vision UI dashboard aesthetic:
+     deep navy gradient field, frosted cards, gradient accents and glow.
+     Self-contained -- no external CSS, fonts or chart library. */
   :root {
-    --bg: #0f1117; --panel: #171a23; --line: #262b38;
-    --text: #e6e9ef; --muted: #8b93a7;
-    --ok: #4ade80; --block: #f87171; --accent: #60a5fa;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6ec;
-      --text: #14171f; --muted: #616a7d;
-    }
+    --bg0: #060b26;
+    --bg1: #0f1535;
+    --card: rgba(255, 255, 255, 0.045);
+    --card-strong: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.10);
+    --text: #ffffff;
+    --muted: #a0aec0;
+    --faint: #7a869f;
+    --blue: #0075ff;
+    --indigo: #4318ff;
+    --violet: #7551ff;
+    --teal: #21d4fd;
+    --green: #01b574;
+    --red: #ee5d50;
+    --amber: #ffb547;
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    margin: 0; padding: 24px;
-    background: var(--bg); color: var(--text);
-    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    padding: 28px clamp(16px, 4vw, 44px) 60px;
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(1100px 700px at 12% -8%, rgba(67, 24, 255, 0.28), transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, rgba(0, 117, 255, 0.20), transparent 55%),
+      linear-gradient(180deg, var(--bg1) 0%, var(--bg0) 60%);
+    background-attachment: fixed;
   }
-  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-  h1 { font-size: 18px; margin: 0; font-weight: 600; }
-  .status { font-size: 12px; color: var(--muted); margin-left: auto; display: flex; align-items: center; gap: 6px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.live { background: var(--ok); }
-  .dot.down { background: var(--block); }
+
+  header {
+    display: flex; align-items: center; gap: 16px;
+    flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 44px; height: 44px; border-radius: 14px; flex: none;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--blue), var(--violet));
+    box-shadow: 0 8px 24px rgba(67, 24, 255, 0.45);
+  }
+  .logo svg { width: 22px; height: 22px; }
+  h1 { font-size: 19px; margin: 0; font-weight: 700; letter-spacing: .2px; }
+  .sub { font-size: 12px; color: var(--faint); margin-top: 2px; word-break: break-all; }
+  .status {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--muted);
+    background: var(--card); border: 1px solid var(--border);
+    padding: 8px 14px; border-radius: 999px; backdrop-filter: blur(12px);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint);
+         box-shadow: 0 0 0 0 rgba(1, 181, 116, 0.6); }
+  .dot.live { background: var(--green); animation: pulse 2s infinite; }
+  .dot.down { background: var(--red); }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(1, 181, 116, 0.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(1, 181, 116, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(1, 181, 116, 0); }
+  }
+
   .note {
-    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
-    padding: 10px 14px; border-radius: 6px; color: var(--muted); margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(0,117,255,0.14), rgba(67,24,255,0.10));
+    border: 1px solid var(--border); border-left: 3px solid var(--blue);
+    padding: 12px 16px; border-radius: 14px; color: var(--muted); margin-bottom: 20px;
   }
   .note[hidden] { display: none; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
-  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
-  .tile .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  .tile .value { font-size: 24px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
-  .tile .value small { font-size: 13px; font-weight: 400; color: var(--muted); }
-  .grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; align-items: start; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
-  .panel h2 { font-size: 13px; margin: 0 0 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-  svg { width: 100%; height: 180px; display: block; }
-  .bar-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
-  .bar-host { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-track { grid-column: 1 / -1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
-  .bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
-  .bar-fill.blocked { background: var(--block); }
-  .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .table-wrap { overflow-x: auto; margin-top: 16px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  td { padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
-  td.url { max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
-  .pill { font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid currentColor; }
-  .pill.ok { color: var(--ok); }
-  .pill.blocked { color: var(--block); }
-  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; backdrop-filter: blur(14px);
+    box-shadow: 0 12px 40px rgba(3, 7, 30, 0.45);
+  }
+
+  .kpis {
+    display: grid; gap: 18px; margin-bottom: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+  .kpi { padding: 18px 20px; position: relative; overflow: hidden; }
+  .kpi .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .kpi .label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+  .kpi .value { font-size: 27px; font-weight: 700; margin-top: 10px; font-variant-numeric: tabular-nums; letter-spacing: .3px; }
+  .kpi .value small { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .chip {
+    width: 42px; height: 42px; border-radius: 13px; flex: none;
+    display: grid; place-items: center; color: #fff;
+  }
+  .chip svg { width: 20px; height: 20px; }
+  .chip.blue   { background: linear-gradient(135deg, #0075ff, #21d4fd); }
+  .chip.violet { background: linear-gradient(135deg, #4318ff, #7551ff); }
+  .chip.green  { background: linear-gradient(135deg, #01b574, #17e0a0); }
+  .chip.red    { background: linear-gradient(135deg, #ee5d50, #ff8f6b); }
+  .chip.amber  { background: linear-gradient(135deg, #ffb547, #ff7c5c); }
+  .chip.teal   { background: linear-gradient(135deg, #21d4fd, #2f80 ); }
+  .delta { font-size: 12px; margin-top: 8px; color: var(--faint); }
+  .delta b { color: var(--muted); font-weight: 600; }
+
+  .grid { display: grid; gap: 18px; grid-template-columns: 1.7fr 1fr; align-items: stretch; }
+  @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+  .panel { padding: 20px 22px; }
+  .panel h2 {
+    font-size: 12px; margin: 0 0 4px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .panel .cap { font-size: 12px; color: var(--faint); margin-bottom: 14px; }
+
+  svg.chart { width: 100%; height: 200px; display: block; overflow: visible; }
+  .empty { color: var(--faint); font-size: 13px; padding: 14px 0; }
+  .empty[hidden] { display: none; }
+
+  /* cache donut */
+  .ringwrap { display: flex; align-items: center; gap: 20px; }
+  .ring { position: relative; width: 150px; height: 150px; flex: none; }
+  .ring .mid {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+  }
+  .ring .mid b { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ring .mid span { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .legend { font-size: 13px; color: var(--muted); }
+  .legend div { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* top domains */
+  .bar-row { margin-bottom: 13px; }
+  .bar-head { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; margin-bottom: 6px; }
+  .bar-host { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-num { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .bar-track { height: 8px; background: rgba(255,255,255,0.06); border-radius: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--blue), var(--violet)); }
+  .bar-fill.blocked { background: linear-gradient(90deg, var(--red), var(--amber)); }
+
+  .table-card { padding: 20px 22px; margin-top: 18px; }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: var(--faint); font-weight: 600; padding: 9px 12px;
+       border-bottom: 1px solid var(--border); white-space: nowrap;
+       text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+  td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05);
+       white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  td.url { max-width: 300px; overflow: hidden; text-overflow: ellipsis; color: var(--faint); }
+  td.host { color: var(--text); }
+  .pill { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .pill.ok      { color: var(--green); background: rgba(1,181,116,0.14); }
+  .pill.blocked { color: var(--red);   background: rgba(238,93,80,0.16); }
+  .pill.hit     { color: var(--teal);  background: rgba(33,212,253,0.14); }
+  .pill.miss    { color: var(--muted); background: rgba(255,255,255,0.06); }
 </style>
 </head>
 <body>
 <header>
-  <h1>Proxy Metrics</h1>
-  <span class="count" id="source"></span>
-  <span class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></span>
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7h16M4 12h16M4 17h10"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Proxy Metrics</h1>
+      <div class="sub" id="source">&nbsp;</div>
+    </div>
+  </div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
 </header>
 
 <div class="note" id="note" hidden></div>
 
-<div class="tiles">
-  <div class="tile"><div class="label">Total requests</div><div class="value" id="total">–</div></div>
-  <div class="tile"><div class="label">Allowed</div><div class="value" id="allowed">–</div></div>
-  <div class="tile"><div class="label">Blocked</div><div class="value" id="blocked">– <small id="blockRate"></small></div></div>
-  <div class="tile"><div class="label">Avg latency</div><div class="value" id="avgLatency">–</div></div>
-  <div class="tile"><div class="label">p50 / p95</div><div class="value" id="percentiles">–</div></div>
-  <div class="tile"><div class="label">Data relayed</div><div class="value" id="bytes">–</div></div>
-  <div class="tile"><div class="label">Cache hit ratio</div><div class="value" id="cacheRatio">– <small id="cacheCounts"></small></div></div>
+<div class="kpis">
+  <div class="card kpi">
+    <div class="row">
+      <span class="label">Total requests</span>
+      <span class="chip blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      </span>
+    </div>
+    <div class="value" id="total">–</div>
+    <div class="delta" id="throughput">&nbsp;</div>
+  </div>
+  <div class="card kpi">
+    <div class="row">
+      <span class="label">Allowed</span>
+      <span class="chip green">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </span>
+    </div>
+    <div class="value" id="allowed">–</div>
+    <div class="delta"><b id="allowedPct">–</b> of traffic</div>
+  </div>
+  <div class="card kpi">
+    <div class="row">
+      <span class="label">Blocked</span>
+      <span class="chip red">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>
+      </span>
+    </div>
+    <div class="value"><span id="blocked">–</span> <small id="blockRate"></small></div>
+    <div class="delta">by domain &amp; keyword policy</div>
+  </div>
+  <div class="card kpi">
+    <div class="row">
+      <span class="label">Avg latency</span>
+      <span class="chip violet">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      </span>
+    </div>
+    <div class="value" id="avgLatency">–</div>
+    <div class="delta">p50 <b id="p50">–</b> · p95 <b id="p95">–</b></div>
+  </div>
+  <div class="card kpi">
+    <div class="row">
+      <span class="label">Data relayed</span>
+      <span class="chip amber">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+      </span>
+    </div>
+    <div class="value" id="bytes">–</div>
+    <div class="delta">to clients</div>
+  </div>
 </div>
 
 <div class="grid">
-  <div class="panel">
-    <h2>Latency, last 100 allowed requests</h2>
-    <svg id="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Latency over recent requests"></svg>
-    <div class="empty" id="chartEmpty" hidden>No latency data yet.</div>
+  <div class="card panel">
+    <h2>Latency</h2>
+    <div class="cap">Last 100 allowed requests, milliseconds</div>
+    <svg id="chart" class="chart" viewBox="0 0 640 200" preserveAspectRatio="none" role="img" aria-label="Latency over recent requests"></svg>
+    <div class="empty" id="chartEmpty" hidden>No latency data yet — send some traffic through the proxy.</div>
   </div>
-  <div class="panel">
-    <h2>Top domains</h2>
-    <div id="domains"></div>
-    <div class="empty" id="domainsEmpty" hidden>No traffic yet.</div>
+  <div class="card panel">
+    <h2>Cache hit ratio</h2>
+    <div class="cap">Of requests that consulted the cache</div>
+    <div class="ringwrap">
+      <div class="ring">
+        <svg viewBox="0 0 120 120" width="150" height="150">
+          <defs>
+            <linearGradient id="ringgrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#21d4fd"/><stop offset="100%" stop-color="#4318ff"/>
+            </linearGradient>
+          </defs>
+          <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="12"/>
+          <circle id="ringArc" cx="60" cy="60" r="52" fill="none" stroke="url(#ringgrad)"
+                  stroke-width="12" stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7"
+                  transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="mid"><div><b id="cacheRatio">n/a</b><span>hit rate</span></div></div>
+      </div>
+      <div class="legend">
+        <div><i style="background:linear-gradient(135deg,#21d4fd,#4318ff)"></i> Hits <b id="cacheHits" style="color:#fff">0</b></div>
+        <div><i style="background:rgba(255,255,255,0.14)"></i> Misses <b id="cacheMisses" style="color:#fff">0</b></div>
+        <div style="margin-top:12px;color:var(--faint);font-size:12px" id="cacheNote">needs Redis + cacheable origins</div>
+      </div>
+    </div>
   </div>
 </div>
 
-<div class="panel table-wrap">
+<div class="card panel" style="margin-top:18px">
+  <h2>Top domains</h2>
+  <div class="cap">By request count</div>
+  <div id="domains"></div>
+  <div class="empty" id="domainsEmpty" hidden>No traffic yet.</div>
+</div>
+
+<div class="card table-card">
   <h2>Recent requests</h2>
-  <table>
-    <thead><tr><th>Time</th><th>Client</th><th>Method</th><th>Host</th><th>URL</th><th>Latency</th><th>Bytes</th><th>Cache</th><th>Status</th></tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Client</th><th>Method</th><th>Host</th><th>URL</th><th>Latency</th><th>Bytes</th><th>Cache</th><th>Status</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
   <div class="empty" id="rowsEmpty" hidden>Nothing recorded yet.</div>
 </div>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 <script>
 const REFRESH_MS = {{ (refresh_seconds * 1000) | int }};
+const RING_CIRC = 2 * Math.PI * 52;
 
 function setStatus(state, text) {
-  const dot = document.getElementById('dot');
-  dot.className = 'dot' + (state ? ' ' + state : '');
+  document.getElementById('dot').className = 'dot' + (state ? ' ' + state : '');
   document.getElementById('statusText').textContent = text;
 }
-
 function fmtBytes(n) {
   if (!n) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let i = 0, v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return v.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+  const u = ['B','KB','MB','GB','TB']; let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i === 0 ? 0 : 1) + ' ' + u[i];
 }
-
+function fmtNum(n) { return (n || 0).toLocaleString(); }
 function toggle(id, show) { document.getElementById(id).hidden = !show; }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
 
 function drawChart(series) {
   const svg = document.getElementById('chart');
-  const points = series.filter(p => !p.blocked);
-  toggle('chartEmpty', points.length === 0);
-  svg.style.display = points.length ? 'block' : 'none';
-  if (!points.length) { svg.innerHTML = ''; return; }
+  const pts = (series || []).filter(p => !p.blocked);
+  toggle('chartEmpty', pts.length === 0);
+  svg.style.display = pts.length ? 'block' : 'none';
+  if (!pts.length) { svg.innerHTML = ''; return; }
 
-  const W = 600, H = 180, pad = 8;
-  const max = Math.max(...points.map(p => p.latency_ms), 1);
-  const step = points.length > 1 ? (W - pad * 2) / (points.length - 1) : 0;
-  const coords = points.map((p, i) => [
-    pad + i * step,
-    H - pad - (p.latency_ms / max) * (H - pad * 2)
-  ]);
-
-  const line = coords.map(c => c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
-  const area = `${pad},${H - pad} ${line} ${(pad + (points.length - 1) * step).toFixed(1)},${H - pad}`;
+  const W = 640, H = 200, pad = 10;
+  const max = Math.max(...pts.map(p => p.latency_ms), 1);
+  const step = pts.length > 1 ? (W - pad * 2) / (pts.length - 1) : 0;
+  const xy = pts.map((p, i) => [pad + i * step, H - pad - (p.latency_ms / max) * (H - pad * 2 - 16)]);
+  const line = xy.map(c => c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const lastX = (pad + (pts.length - 1) * step).toFixed(1);
+  const area = `${pad},${H - pad} ${line} ${lastX},${H - pad}`;
 
   svg.innerHTML =
-    `<polygon points="${area}" fill="var(--accent)" opacity="0.12"></polygon>` +
-    `<polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
-       stroke-linejoin="round" vector-effect="non-scaling-stroke"></polyline>` +
-    `<text x="${pad}" y="14" fill="var(--muted)" font-size="11">peak ${max.toFixed(0)} ms</text>`;
+    `<defs>
+       <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+         <stop offset="0%" stop-color="#7551ff" stop-opacity="0.45"/>
+         <stop offset="100%" stop-color="#7551ff" stop-opacity="0"/>
+       </linearGradient>
+       <linearGradient id="ls" x1="0" y1="0" x2="1" y2="0">
+         <stop offset="0%" stop-color="#21d4fd"/><stop offset="100%" stop-color="#7551ff"/>
+       </linearGradient>
+       <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/>
+         <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+     </defs>
+     <polygon points="${area}" fill="url(#lg)"/>
+     <polyline points="${line}" fill="none" stroke="url(#ls)" stroke-width="2.5"
+       stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)" vector-effect="non-scaling-stroke"/>
+     <text x="${pad}" y="15" fill="#a0aec0" font-size="11">peak ${max.toFixed(0)} ms</text>`;
+}
+
+function drawRing(ratio, hits, misses) {
+  const consulted = (hits || 0) + (misses || 0);
+  const arc = document.getElementById('ringArc');
+  const r = consulted ? (ratio || 0) / 100 : 0;
+  arc.style.strokeDashoffset = (RING_CIRC * (1 - r)).toFixed(1);
+  document.getElementById('cacheRatio').textContent = consulted ? (ratio || 0) + '%' : 'n/a';
+  document.getElementById('cacheHits').textContent = fmtNum(hits);
+  document.getElementById('cacheMisses').textContent = fmtNum(misses);
+  document.getElementById('cacheNote').textContent =
+    consulted ? '' : 'needs Redis + cacheable origins';
 }
 
 function drawDomains(domains) {
   const box = document.getElementById('domains');
+  domains = domains || [];
   toggle('domainsEmpty', domains.length === 0);
   if (!domains.length) { box.innerHTML = ''; return; }
   const max = Math.max(...domains.map(d => d.requests), 1);
   box.innerHTML = domains.map(d => {
     const pct = (d.requests / max) * 100;
-    const allBlocked = d.blocked === d.requests && d.requests > 0;
+    const allBlocked = d.requests > 0 && d.blocked === d.requests;
+    const sub = d.blocked ? ` · ${d.blocked} blocked` : '';
     return `<div class="bar-row">
-        <span class="bar-host" title="${esc(d.host)}">${esc(d.host)}</span>
-        <span class="count">${d.requests}${d.blocked ? ' · ' + d.blocked + ' blocked' : ''}</span>
-        <span class="bar-track"><span class="bar-fill${allBlocked ? ' blocked' : ''}" style="width:${pct}%"></span></span>
-      </div>`;
+      <div class="bar-head"><span class="bar-host" title="${esc(d.host)}">${esc(d.host)}</span>
+        <span class="bar-num">${fmtNum(d.requests)}${sub}</span></div>
+      <div class="bar-track"><div class="bar-fill${allBlocked ? ' blocked' : ''}" style="width:${pct}%"></div></div>
+    </div>`;
   }).join('');
 }
 
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
 function drawRows(rows) {
+  rows = rows || [];
   toggle('rowsEmpty', rows.length === 0);
-  document.getElementById('rows').innerHTML = rows.map(r => `
-    <tr>
+  document.getElementById('rows').innerHTML = rows.map(r => {
+    const cache = (r.cache || '').toLowerCase();
+    const cachePill = cache === 'hit' ? '<span class="pill hit">hit</span>'
+      : (cache && cache !== 'bypass') ? `<span class="pill miss">${esc(cache)}</span>` : '<span style="color:var(--faint)">–</span>';
+    return `<tr>
       <td>${esc(r.timestamp)}</td>
       <td>${esc(r.client_ip)}</td>
       <td>${esc(r.method)}</td>
-      <td>${esc(r.host)}</td>
+      <td class="host">${esc(r.host)}</td>
       <td class="url" title="${esc(r.url)}">${esc(r.url)}</td>
       <td>${r.latency_ms} ms</td>
       <td>${fmtBytes(r.response_bytes)}</td>
-      <td>${esc(r.cache || '–')}</td>
+      <td>${cachePill}</td>
       <td><span class="pill ${r.blocked ? 'blocked' : 'ok'}">${r.blocked ? 'blocked' : 'ok'}</span></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+}
+
+// Guarded setters: a missing element must never throw and take the
+// whole render (and the connection status) down with it.
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value;
+}
+function setHTML(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = value;
 }
 
 function render(d) {
-  document.getElementById('source').textContent = d.metrics_path || '';
+  setText('source', d.metrics_path || '');
   const note = document.getElementById('note');
-  note.hidden = !d.message;
-  note.textContent = d.message || '';
+  if (note) { note.hidden = !d.message; note.textContent = d.message || ''; }
 
-  document.getElementById('total').textContent = d.total_requests;
-  document.getElementById('allowed').textContent = d.allowed_requests;
-  document.getElementById('blocked').textContent = d.blocked_requests;
-  document.getElementById('blockRate').textContent = d.total_requests ? `(${d.block_rate_pct}%)` : '';
-  document.getElementById('avgLatency').textContent = d.avg_latency_ms + ' ms';
-  document.getElementById('percentiles').textContent = `${d.p50_latency_ms} / ${d.p95_latency_ms} ms`;
-  document.getElementById('bytes').textContent = fmtBytes(d.total_response_bytes);
-  // Only requests that actually consulted the cache count towards the
-  // ratio; blocked and bypassed requests never did.
-  const consulted = (d.cache_hits || 0) + (d.cache_misses || 0);
-  document.getElementById('cacheRatio').textContent =
-    consulted ? d.cache_hit_ratio_pct + '%' : 'n/a';
-  document.getElementById('cacheCounts').textContent =
-    consulted ? `(${d.cache_hits}/${consulted})` : '';
+  setText('total', fmtNum(d.total_requests));
+  setText('allowed', fmtNum(d.allowed_requests));
+  setText('blocked', fmtNum(d.blocked_requests));
+  setText('blockRate', d.total_requests ? `(${d.block_rate_pct}%)` : '');
+  const allowedPct = d.total_requests ? Math.round(d.allowed_requests / d.total_requests * 100) : 0;
+  setText('allowedPct', allowedPct + '%');
+  setText('avgLatency', (d.avg_latency_ms || 0) + ' ms');
+  setText('p50', (d.p50_latency_ms || 0) + ' ms');
+  setText('p95', (d.p95_latency_ms || 0) + ' ms');
+  setText('bytes', fmtBytes(d.total_response_bytes));
+  setHTML('throughput', d.total_requests ? `<b>${fmtNum(d.allowed_requests)}</b> served` : '&nbsp;');
 
-  drawChart(d.latency_series || []);
-  drawDomains(d.top_domains || []);
-  drawRows(d.recent || []);
+  drawChart(d.latency_series);
+  drawRing(d.cache_hit_ratio_pct, d.cache_hits, d.cache_misses);
+  drawDomains(d.top_domains);
+  drawRows(d.recent);
 }
 
 async function pollOnce() {
+  let data;
   try {
     const res = await fetch('/api/metrics');
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    render(await res.json());
-    setStatus('live', 'polling');
-  } catch (err) {
+    data = await res.json();
+  } catch (e) {
+    // Only a genuine fetch failure is a connectivity problem.
     setStatus('down', 'dashboard unreachable');
+    return;
   }
+  // A render error is a bug, not a disconnect -- surface it, don't hide it.
+  try { render(data); setStatus('live', 'polling'); }
+  catch (e) { setStatus('down', 'render error'); console.error('render failed:', e); }
 }
 
 // Prefer websockets; fall back to polling the JSON endpoint if the
-// Socket.IO client did not load or the transport never connects.
+// Socket.IO client did not load or never connects.
 if (typeof io === 'function') {
   const socket = io({ transports: ['websocket', 'polling'] });
   socket.on('connect', () => setStatus('live', 'live'));
@@ -229,8 +445,7 @@ if (typeof io === 'function') {
   socket.on('metrics_update', render);
   setTimeout(() => { if (!socket.connected) { pollOnce(); setInterval(pollOnce, REFRESH_MS); } }, 3000);
 } else {
-  pollOnce();
-  setInterval(pollOnce, REFRESH_MS);
+  pollOnce(); setInterval(pollOnce, REFRESH_MS);
 }
 pollOnce();
 </script>

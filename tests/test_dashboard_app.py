@@ -69,3 +69,19 @@ def test_api_metrics_when_file_is_missing(client, tmp_path):
     data = response.get_json()
     assert data["available"] is False
     assert data["total_requests"] == 0
+
+
+def test_counter_elements_have_no_nested_id_children(client):
+    """Regression: render() sets textContent on #blocked, which wipes its
+    children. A sibling like #blockRate nested inside it gets destroyed,
+    and the next line's getElementById returns null and throws -- silently
+    caught and mislabelled as "dashboard unreachable". Keep id-bearing
+    counters and their adornments as siblings, never parent/child."""
+    import re
+    html = client.get("/").get_data(as_text=True)
+    # The blocked count must be its own span, with blockRate as a sibling.
+    assert '<span id="blocked">' in html
+    # blockRate must not sit inside the element whose textContent is overwritten.
+    m = re.search(r'id="blocked"[^>]*>(.*?)</span>', html)
+    assert m is not None
+    assert 'id="blockRate"' not in m.group(1)

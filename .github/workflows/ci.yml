@@ -84,21 +84,36 @@ jobs:
         with:
           context: .
           push: false
+          # load: true requires the docker driver, which cannot export a
+          # GHA cache, so no cache-to here.
           load: true
           tags: proxy:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Smoke-test the image
         run: |
+          set -euo pipefail
           docker run -d --name proxy-ci -p 8080:8080 -p 8081:8081 proxy:ci \
             --host 0.0.0.0 --port 8080 --no-cache --metrics-port 0
+
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8081/ready >/dev/null 2>&1; then
-              echo "proxy is ready"; break
+              echo "proxy reported ready after ${i}s"; break
+            fi
+            if [ "$i" = "30" ]; then
+              echo "proxy never became ready"; docker logs proxy-ci; exit 1
             fi
             sleep 1
           done
+
           curl -fsS http://127.0.0.1:8081/health
-          curl -fsS -x http://127.0.0.1:8080 http://example.com/ -o /dev/null -w 'proxied status: %{http_code}\n'
+
+          # Deterministic and offline: example.com is in the shipped
+          # blocklist, so the filter answers 403 without any upstream.
+          # Asserting on the code rather than using -f, which treats 403
+          # as a failure.
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+                 -x http://127.0.0.1:8080 http://example.com/)
+          echo "blocked-domain request returned $code"
+          [ "$code" = "403" ] || { docker logs proxy-ci; exit 1; }
+
           docker rm -f proxy-ci

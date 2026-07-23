@@ -60,9 +60,13 @@ class AsyncProxyFixture:
             # Off by default here so these tests measure the proxy path
             # rather than admission control. Shedding has its own test.
             adaptive_rate_limit=adaptive_rate_limit,
-            # No exporter: a fixed port would collide between fixtures.
-            # Telemetry still records into its own isolated registry.
+            # No exporter and no health listener: both default to fixed
+            # ports, which collide as soon as two fixtures exist. Linux
+            # refuses the second bind outright; Windows quietly allows
+            # it, so this only fails in CI. Telemetry still records into
+            # its own isolated registry, and health has its own tests.
             metrics_port=None,
+            health_port=None,
         )
         self.loop = asyncio.new_event_loop()
         self.port = None

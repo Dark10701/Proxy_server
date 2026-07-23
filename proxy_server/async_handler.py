@@ -36,6 +36,17 @@ from proxy_server.http_parser import (
     parse_http_request,
     parse_target_from_request,
 )
+from proxy_server.observability import (
+    OUTCOME_BLOCKED,
+    OUTCOME_CACHE_HIT,
+    OUTCOME_CLIENT_ERROR,
+    OUTCOME_FORWARDED,
+    OUTCOME_PROXY_ERROR,
+    OUTCOME_RATE_LIMITED,
+    OUTCOME_SHED,
+    OUTCOME_TUNNELLED,
+    OUTCOME_UPSTREAM_ERROR,
+)
 from proxy_server.scheduler import estimate_priority
 
 CLIENT_READ_TIMEOUT_SECONDS = 10.0
@@ -102,8 +113,10 @@ class AsyncClientHandler:
         scheduler=None,
         rate_controller=None,
         cache=None,
+        telemetry=None,
     ) -> None:
         self.cache = cache
+        self.telemetry = telemetry
         self.reader = reader
         self.writer = writer
         self.filter_engine = filter_engine
@@ -133,6 +146,8 @@ class AsyncClientHandler:
                 "Unhandled error client_id=%s: %r", self.client_id, exc, exc_info=True
             )
             await self._try_send(self._response(500, "Internal proxy error."))
+            if self.telemetry is not None:
+                self.telemetry.record_request("UNKNOWN", OUTCOME_PROXY_ERROR, 0.0)
         finally:
             await self._close()
 
@@ -145,6 +160,7 @@ class AsyncClientHandler:
         request_line, headers, body = parse_http_request(request_data)
         if not request_line:
             await self._send(self._response(400, "Malformed request received by proxy."))
+            self._telemetry_request("UNKNOWN", OUTCOME_CLIENT_ERROR, received_at)
             return
 
         method, url, version = request_line
@@ -166,6 +182,7 @@ class AsyncClientHandler:
             self._record(
                 method, url, policy_host, received_at, len(request_data), size, blocked=1
             )
+            self._telemetry_request(method, OUTCOME_RATE_LIMITED, received_at)
             return
 
         priority = estimate_priority(method, headers)
@@ -183,6 +200,7 @@ class AsyncClientHandler:
                     method, url, policy_host, received_at,
                     len(request_data), size, blocked=1,
                 )
+                self._telemetry_request(method, OUTCOME_SHED, received_at)
                 return
         try:
             if self.rate_controller is not None and not self.rate_controller.allow_request():
@@ -197,6 +215,7 @@ class AsyncClientHandler:
                     method, url, policy_host, received_at,
                     len(request_data), size, blocked=1,
                 )
+                self._telemetry_request(method, OUTCOME_SHED, received_at)
                 return
 
             if method_upper == "CONNECT":
@@ -293,6 +312,7 @@ class AsyncClientHandler:
                 method, url, target_host, received_at,
                 len(request_data), size, blocked=1,
             )
+            self._telemetry_request(method, OUTCOME_BLOCKED, received_at)
             return
 
         if path.lower().startswith(("http://", "https://")):
@@ -333,6 +353,10 @@ class AsyncClientHandler:
                     blocked=0,
                     cache="hit",
                 )
+                if self.telemetry is not None:
+                    self.telemetry.record_cache("hit")
+                    self.telemetry.record_bytes(to_client=len(cached))
+                self._telemetry_request(method, OUTCOME_CACHE_HIT, received_at)
                 return
 
         forward_bytes = build_forward_request(
@@ -351,6 +375,9 @@ class AsyncClientHandler:
                 target_host, target_port, self.client_id,
             )
             await self._try_send(self._response(504, "Upstream timed out."))
+            if self.telemetry is not None:
+                self.telemetry.record_upstream_error("connect_timeout")
+            self._telemetry_request(method, OUTCOME_UPSTREAM_ERROR, received_at)
             return
         except OSError as exc:
             self.logger.error(
@@ -359,6 +386,9 @@ class AsyncClientHandler:
             await self._try_send(
                 self._response(502, "Proxy could not reach the upstream server.")
             )
+            if self.telemetry is not None:
+                self.telemetry.record_upstream_error("connect_failed")
+            self._telemetry_request(method, OUTCOME_UPSTREAM_ERROR, received_at)
             return
 
         response_bytes = 0
@@ -433,6 +463,12 @@ class AsyncClientHandler:
             blocked=0,
             cache=cache_status,
         )
+        if self.telemetry is not None:
+            self.telemetry.record_cache(cache_status)
+            self.telemetry.record_bytes(
+                to_client=response_bytes, to_upstream=len(forward_bytes)
+            )
+        self._telemetry_request(method, OUTCOME_FORWARDED, received_at)
 
     # ------------------------------------------------------------------
     # CONNECT tunnelling
@@ -457,6 +493,7 @@ class AsyncClientHandler:
                 method, url, target_host, received_at,
                 len(request_data), size, blocked=1,
             )
+            self._telemetry_request(method, OUTCOME_BLOCKED, received_at)
             return
 
         start = time.time()
@@ -471,6 +508,9 @@ class AsyncClientHandler:
                 target_host, target_port, self.client_id,
             )
             await self._try_send(self._response(504, "Upstream timed out."))
+            if self.telemetry is not None:
+                self.telemetry.record_upstream_error("connect_timeout")
+            self._telemetry_request(method, OUTCOME_UPSTREAM_ERROR, received_at)
             return
         except OSError as exc:
             self.logger.error(
@@ -479,6 +519,9 @@ class AsyncClientHandler:
             await self._try_send(
                 self._response(502, "Proxy could not reach the upstream server.")
             )
+            if self.telemetry is not None:
+                self.telemetry.record_upstream_error("connect_failed")
+            self._telemetry_request(method, OUTCOME_UPSTREAM_ERROR, received_at)
             return
 
         relayed = 0
@@ -508,6 +551,9 @@ class AsyncClientHandler:
             response_bytes=relayed,
             blocked=0,
         )
+        if self.telemetry is not None:
+            self.telemetry.record_bytes(to_client=relayed)
+        self._telemetry_request(method, OUTCOME_TUNNELLED, received_at)
 
     async def _relay_bidirectional(self, upstream_reader, upstream_writer) -> int:
         """Pump both directions until either side closes or goes idle."""
@@ -605,6 +651,12 @@ class AsyncClientHandler:
             return await self._send(payload)
         except ClientDisconnected:
             return 0
+
+    def _telemetry_request(self, method, outcome, started_at) -> None:
+        if self.telemetry is not None:
+            self.telemetry.record_request(
+                method, outcome, max(time.time() - started_at, 0.0)
+            )
 
     def _record(
         self, method, url, host, received_at, request_bytes, response_bytes, blocked

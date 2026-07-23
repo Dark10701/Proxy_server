@@ -60,6 +60,9 @@ class AsyncProxyFixture:
             # Off by default here so these tests measure the proxy path
             # rather than admission control. Shedding has its own test.
             adaptive_rate_limit=adaptive_rate_limit,
+            # No exporter: a fixed port would collide between fixtures.
+            # Telemetry still records into its own isolated registry.
+            metrics_port=None,
         )
         self.loop = asyncio.new_event_loop()
         self.port = None

@@ -13,6 +13,7 @@ from proxy_server.cache import HTTPCache
 from proxy_server.client_handler import MAX_HEADER_BYTES
 from proxy_server.filter_engine import FilterEngine
 from proxy_server.logger import ProxyLogger
+from proxy_server.observability import Telemetry
 from proxy_server.rate_controller import RateController
 
 PRUNE_INTERVAL_SECONDS = 60.0
@@ -34,6 +35,7 @@ class AsyncProxyServer:
         adaptive_rate_limit: bool = True,
         cache_enabled: bool = True,
         redis_url: str = "redis://127.0.0.1:6379/0",
+        metrics_port: Optional[int] = 9100,
     ) -> None:
         self.host = host
         self.port = port
@@ -51,7 +53,11 @@ class AsyncProxyServer:
             url=redis_url, enabled=cache_enabled, logger=self.logger
         )
 
+        self.telemetry = Telemetry()
+        self.metrics_port = metrics_port
+
         self._server: Optional[asyncio.AbstractServer] = None
+        self._gauge_task: Optional[asyncio.Task] = None
         self._prune_task: Optional[asyncio.Task] = None
         self.active_connections = 0
         self.peak_connections = 0
@@ -61,6 +67,7 @@ class AsyncProxyServer:
     ) -> None:
         self.active_connections += 1
         self.peak_connections = max(self.peak_connections, self.active_connections)
+        self.telemetry.connection_opened()
         try:
             handler = AsyncClientHandler(
                 reader=reader,
@@ -72,10 +79,25 @@ class AsyncProxyServer:
                 scheduler=self.scheduler,
                 rate_controller=self.rate_controller,
                 cache=self.cache,
+                telemetry=self.telemetry,
             )
             await handler.handle()
         finally:
             self.active_connections -= 1
+            self.telemetry.connection_closed()
+
+    async def _gauge_loop(self) -> None:
+        """Sample state-shaped values that no single event updates."""
+        while True:
+            await asyncio.sleep(5.0)
+            self.telemetry.observe_gauges(
+                queued=self.scheduler.stats()["queued"],
+                rate_limit=(
+                    self.rate_controller.get_current_rate()
+                    if self.rate_controller is not None
+                    else 0.0
+                ),
+            )
 
     async def _prune_loop(self) -> None:
         """Keep the rate-limit table from growing without bound."""
@@ -103,6 +125,21 @@ class AsyncProxyServer:
             reuse_address=True,
         )
         self._prune_task = asyncio.create_task(self._prune_loop())
+        self._gauge_task = asyncio.create_task(self._gauge_loop())
+
+        if self.metrics_port:
+            try:
+                self.telemetry.start_server(self.metrics_port)
+                self.logger.info(
+                    "Prometheus metrics on http://0.0.0.0:%s/metrics",
+                    self.metrics_port,
+                )
+            except OSError as exc:
+                # Losing the exporter must not stop the proxy serving.
+                self.logger.error(
+                    "Could not bind metrics port %s: %s", self.metrics_port, exc
+                )
+
         self.logger.info(
             "Async proxy server listening on %s:%s", self.host, self.port
         )
@@ -114,13 +151,15 @@ class AsyncProxyServer:
             await self._server.serve_forever()
 
     async def stop(self) -> None:
-        if self._prune_task is not None:
-            self._prune_task.cancel()
-            try:
-                await self._prune_task
-            except asyncio.CancelledError:
-                pass
-            self._prune_task = None
+        for attr in ("_prune_task", "_gauge_task"):
+            task = getattr(self, attr, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, attr, None)
 
         if self._server is not None:
             self._server.close()

@@ -73,6 +73,12 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Redis URL for the response cache (default: %(default)s)",
     )
     parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=9100,
+        help="Port for the Prometheus /metrics endpoint (0 disables)",
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Disable the response cache entirely",
@@ -97,6 +103,7 @@ def run_async(args) -> None:
         max_queued=args.max_queued,
         cache_enabled=not args.no_cache,
         redis_url=args.redis_url,
+        metrics_port=args.metrics_port or None,
     )
 
     async def _main() -> None:

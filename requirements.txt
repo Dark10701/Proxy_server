@@ -1,1 +1,4 @@
-Flask
+# The proxy itself runs on the standard library alone.
+# This dependency is only needed by proxy_server/client_simulation.py,
+# the load-generator script.
+requests>=2.31.0

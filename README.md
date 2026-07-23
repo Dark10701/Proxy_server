@@ -68,6 +68,17 @@ python -m proxy_server.main --host 127.0.0.1 --port 8080
 
 That's it — the proxy has no mandatory dependencies. Redis and Prometheus are optional; without them the cache and the metrics endpoint simply switch off and traffic still flows.
 
+### One command to see it working
+
+To watch it live with **zero setup**, one command starts the proxy, the dashboard, a bundled origin and a bundled Redis, generates a little demo traffic, and opens the dashboard in your browser:
+
+```bash
+pip install -r requirements.txt flask flask-socketio
+python scripts/run_local.py
+```
+
+Then the dashboard is at **http://localhost:5000**, already populated. Everything is loopback-only and needs no internet — the "allowed" traffic goes to the bundled origin and the "blocked" traffic is refused by the filter locally. Press `Ctrl-C` to stop everything at once. Add `--no-demo-traffic` to drive it yourself, or `--no-browser` to skip opening a tab.
+
 In another terminal, send a request through it:
 
 ```bash

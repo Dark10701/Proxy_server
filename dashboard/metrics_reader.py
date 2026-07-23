@@ -27,6 +27,7 @@ class RequestRecord:
     request_bytes: int
     response_bytes: int
     blocked: bool
+    cache: str
 
 
 @dataclass
@@ -42,6 +43,10 @@ class MetricsSnapshot:
     p95_latency_ms: float = 0.0
     total_request_bytes: int = 0
     total_response_bytes: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    cache_stores: int = 0
+    cache_hit_ratio_pct: float = 0.0
     top_domains: List[Dict[str, object]] = field(default_factory=list)
     latency_series: List[Dict[str, object]] = field(default_factory=list)
     recent: List[Dict[str, object]] = field(default_factory=list)
@@ -94,6 +99,7 @@ def read_records(metrics_path: Path) -> List[RequestRecord]:
                     request_bytes=_coerce_int(row.get("request_bytes", "0")),
                     response_bytes=_coerce_int(row.get("response_bytes", "0")),
                     blocked=_coerce_int(row.get("blocked", "0")) == 1,
+                    cache=(row.get("cache") or "").strip().lower(),
                 )
             )
     return records
@@ -139,6 +145,18 @@ def build_snapshot(metrics_path: str) -> MetricsSnapshot:
         snapshot.p50_latency_ms = round(_percentile(latencies, 50), 1)
         snapshot.p95_latency_ms = round(_percentile(latencies, 95), 1)
 
+    # Cache outcomes. Only requests that consulted the cache count
+    # towards the ratio: blocked and bypassed requests never did, and
+    # including them would understate it.
+    snapshot.cache_hits = sum(1 for r in records if r.cache == "hit")
+    snapshot.cache_misses = sum(1 for r in records if r.cache in ("miss", "store"))
+    snapshot.cache_stores = sum(1 for r in records if r.cache == "store")
+    consulted = snapshot.cache_hits + snapshot.cache_misses
+    if consulted:
+        snapshot.cache_hit_ratio_pct = round(
+            snapshot.cache_hits / consulted * 100, 1
+        )
+
     counts: Dict[str, Dict[str, int]] = {}
     for record in records:
         if not record.host:
@@ -176,6 +194,7 @@ def build_snapshot(metrics_path: str) -> MetricsSnapshot:
             "latency_ms": r.latency_ms,
             "response_bytes": r.response_bytes,
             "blocked": r.blocked,
+            "cache": r.cache,
         }
         for r in reversed(recent)
     ][:25]

@@ -25,6 +25,12 @@ from proxy_server.client_handler import (
     TUNNEL_IDLE_TIMEOUT_SECONDS,
     is_whitelisted,
 )
+from proxy_server.cache import (
+    cache_key,
+    request_allows_cache,
+    response_ttl,
+    split_response,
+)
 from proxy_server.http_parser import (
     build_forward_request,
     parse_http_request,
@@ -95,7 +101,9 @@ class AsyncClientHandler:
         rate_limiter: AsyncRateLimiter,
         scheduler=None,
         rate_controller=None,
+        cache=None,
     ) -> None:
+        self.cache = cache
         self.reader = reader
         self.writer = writer
         self.filter_engine = filter_engine
@@ -293,6 +301,40 @@ class AsyncClientHandler:
             if parsed.query:
                 path = f"{path}?{parsed.query}"
 
+        # --- cache lookup -------------------------------------------------
+        may_read, may_write = (False, False)
+        key = None
+        if self.cache is not None:
+            may_read, may_write = request_allows_cache(method, headers)
+            if may_read or may_write:
+                key = cache_key(method, url)
+
+        if key is not None and may_read:
+            cached = await self.cache.get(key)
+            if cached is not None:
+                start = time.time()
+                try:
+                    self.writer.write(cached)
+                    await self.writer.drain()
+                except (ConnectionResetError, BrokenPipeError) as exc:
+                    raise ClientDisconnected(str(exc)) from exc
+                self.logger.info(
+                    "Cache hit request_type=%s client_id=%s url=%s",
+                    method, self.client_id, url,
+                )
+                self.metrics_logger.log(
+                    client_ip=self.client_ip,
+                    method=method,
+                    url=url,
+                    host=target_host,
+                    latency_ms=int((time.time() - start) * 1000),
+                    request_bytes=len(request_data),
+                    response_bytes=len(cached),
+                    blocked=0,
+                    cache="hit",
+                )
+                return
+
         forward_bytes = build_forward_request(
             method=method, path=path, version=version, headers=headers, body=body
         )
@@ -320,6 +362,10 @@ class AsyncClientHandler:
             return
 
         response_bytes = 0
+        # Buffer only while the response is still small enough to store;
+        # past the limit we drop the buffer and keep streaming.
+        capture = bytearray() if (key is not None and may_write) else None
+        complete = False
         try:
             upstream_writer.write(forward_bytes)
             await upstream_writer.drain()
@@ -341,8 +387,13 @@ class AsyncClientHandler:
                     )
                     break
                 if not chunk:
+                    complete = True
                     break
                 response_bytes += len(chunk)
+                if capture is not None:
+                    capture.extend(chunk)
+                    if len(capture) > self.cache.max_entry_bytes:
+                        capture = None
                 self.writer.write(chunk)
                 # Backpressure: a slow client slows the upstream read
                 # rather than growing an unbounded buffer here.
@@ -360,6 +411,17 @@ class AsyncClientHandler:
         latency_ms = int((time.time() - start) * 1000)
         if self.rate_controller is not None:
             self.rate_controller.record_latency(latency_ms)
+
+        # Only a response we received in full is safe to replay later.
+        cache_status = "miss" if key is not None and may_read else "bypass"
+        if capture is not None and complete and key is not None and may_write:
+            parsed_response = split_response(bytes(capture))
+            if parsed_response is not None:
+                status, response_headers = parsed_response
+                ttl = response_ttl(status, response_headers)
+                if ttl and await self.cache.set(key, bytes(capture), ttl):
+                    cache_status = "store"
+
         self.metrics_logger.log(
             client_ip=self.client_ip,
             method=method,
@@ -369,6 +431,7 @@ class AsyncClientHandler:
             request_bytes=len(forward_bytes),
             response_bytes=response_bytes,
             blocked=0,
+            cache=cache_status,
         )
 
     # ------------------------------------------------------------------

@@ -65,6 +65,7 @@ class AsyncMetricsLogger:
         request_bytes: int,
         response_bytes: int,
         blocked: int = 0,
+        cache: str = "",
     ) -> None:
         """Hand a row to the writer. Never blocks the caller.
 
@@ -84,6 +85,7 @@ class AsyncMetricsLogger:
             request_bytes,
             response_bytes,
             blocked,
+            cache,
         ]
         try:
             self._queue.put_nowait(row)

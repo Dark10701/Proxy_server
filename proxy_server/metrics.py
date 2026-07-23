@@ -21,6 +21,7 @@ class MetricsLogger:
         "request_bytes",
         "response_bytes",
         "blocked",
+        "cache",
     ]
 
     def __init__(self, metrics_path: str) -> None:
@@ -54,6 +55,8 @@ class MetricsLogger:
                         normalized_row.append(row[old_index[field]])
                     elif field == "blocked":
                         normalized_row.append("0")
+                    elif field == "cache":
+                        normalized_row.append("")
                     else:
                         normalized_row.append("")
                 normalized_rows.append(normalized_row)
@@ -73,6 +76,7 @@ class MetricsLogger:
         request_bytes: int,
         response_bytes: int,
         blocked: int = 0,
+        cache: str = "",
     ) -> None:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         with self._lock:
@@ -89,6 +93,7 @@ class MetricsLogger:
                         request_bytes,
                         response_bytes,
                         blocked,
+                        cache,
                     ]
                 )
                 csv_file.flush()

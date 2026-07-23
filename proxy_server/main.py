@@ -67,6 +67,16 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=512,
         help="Async mode: requests allowed to wait for a slot (default: 512)",
     )
+    parser.add_argument(
+        "--redis-url",
+        default="redis://127.0.0.1:6379/0",
+        help="Redis URL for the response cache (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable the response cache entirely",
+    )
     return parser.parse_args(argv)
 
 
@@ -85,6 +95,8 @@ def run_async(args) -> None:
         error_log_path=args.error_log,
         max_concurrent=args.max_concurrent,
         max_queued=args.max_queued,
+        cache_enabled=not args.no_cache,
+        redis_url=args.redis_url,
     )
 
     async def _main() -> None:

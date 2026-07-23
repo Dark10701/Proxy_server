@@ -9,6 +9,7 @@ from proxy_server.async_handler import (
 )
 from proxy_server.async_metrics import AsyncMetricsLogger
 from proxy_server.async_scheduler import AsyncScheduler
+from proxy_server.cache import HTTPCache
 from proxy_server.client_handler import MAX_HEADER_BYTES
 from proxy_server.filter_engine import FilterEngine
 from proxy_server.logger import ProxyLogger
@@ -31,6 +32,8 @@ class AsyncProxyServer:
         max_concurrent: int = 256,
         max_queued: int = 512,
         adaptive_rate_limit: bool = True,
+        cache_enabled: bool = True,
+        redis_url: str = "redis://127.0.0.1:6379/0",
     ) -> None:
         self.host = host
         self.port = port
@@ -44,6 +47,9 @@ class AsyncProxyServer:
             max_concurrent=max_concurrent, max_queued=max_queued
         )
         self.rate_controller = RateController() if adaptive_rate_limit else None
+        self.cache = HTTPCache(
+            url=redis_url, enabled=cache_enabled, logger=self.logger
+        )
 
         self._server: Optional[asyncio.AbstractServer] = None
         self._prune_task: Optional[asyncio.Task] = None
@@ -65,6 +71,7 @@ class AsyncProxyServer:
                 rate_limiter=self.rate_limiter,
                 scheduler=self.scheduler,
                 rate_controller=self.rate_controller,
+                cache=self.cache,
             )
             await handler.handle()
         finally:
@@ -80,6 +87,10 @@ class AsyncProxyServer:
         """Bind the listener and begin serving."""
         self.metrics_logger = AsyncMetricsLogger(self.metrics_path)
         self.metrics_logger.start()
+
+        # A missing or unreachable Redis is not fatal: the proxy runs
+        # without a cache rather than refusing to start.
+        await self.cache.connect()
 
         self._server = await asyncio.start_server(
             self._on_client,
@@ -120,6 +131,8 @@ class AsyncProxyServer:
             await self.metrics_logger.close()
             self.metrics_logger = None
 
+        await self.cache.close()
+
     @property
     def port_in_use(self) -> int:
         """Actual bound port, for tests that ask the OS to pick one."""
@@ -132,6 +145,7 @@ class AsyncProxyServer:
             "active_connections": self.active_connections,
             "peak_connections": self.peak_connections,
             "scheduler": self.scheduler.stats(),
+            "cache": self.cache.stats(),
         }
         if self.rate_controller is not None:
             data["rate_controller"] = self.rate_controller.stats()

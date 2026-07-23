@@ -94,7 +94,7 @@
 <div class="panel table-wrap">
   <h2>Recent requests</h2>
   <table>
-    <thead><tr><th>Time</th><th>Client</th><th>Method</th><th>Host</th><th>URL</th><th>Latency</th><th>Bytes</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>Client</th><th>Method</th><th>Host</th><th>URL</th><th>Latency</th><th>Bytes</th><th>Cache</th><th>Status</th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
   <div class="empty" id="rowsEmpty" hidden>Nothing recorded yet.</div>
@@ -177,6 +177,7 @@ function drawRows(rows) {
       <td class="url" title="${esc(r.url)}">${esc(r.url)}</td>
       <td>${r.latency_ms} ms</td>
       <td>${fmtBytes(r.response_bytes)}</td>
+      <td>${esc(r.cache || '–')}</td>
       <td><span class="pill ${r.blocked ? 'blocked' : 'ok'}">${r.blocked ? 'blocked' : 'ok'}</span></td>
     </tr>`).join('');
 }
@@ -194,6 +195,11 @@ function render(d) {
   document.getElementById('avgLatency').textContent = d.avg_latency_ms + ' ms';
   document.getElementById('percentiles').textContent = `${d.p50_latency_ms} / ${d.p95_latency_ms} ms`;
   document.getElementById('bytes').textContent = fmtBytes(d.total_response_bytes);
+  const consulted = (d.cache_hits || 0) + (d.cache_misses || 0);
+  document.getElementById('cacheRatio').textContent =
+    consulted ? d.cache_hit_ratio_pct + '%' : 'n/a';
+  document.getElementById('cacheCounts').textContent =
+    consulted ? `(${d.cache_hits}/${consulted})` : '';
 
   drawChart(d.latency_series || []);
   drawDomains(d.top_domains || []);

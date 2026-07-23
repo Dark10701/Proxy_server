@@ -12,3 +12,6 @@ proxy_server/logs/
 *.egg-info/
 .venv/
 venv/
+benchmarks/_out/
+benchmarks/_logs/
+benchmarks/_run.log

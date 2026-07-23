@@ -1,0 +1,224 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "title": "HTTP Proxy",
+  "uid": "http-proxy-overview",
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "query",
+        "datasource": "${datasource}",
+        "query": "label_values(proxy_requests_total, instance)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Throughput (requests/sec by outcome)",
+      "id": 1,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "${datasource}",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 12, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(proxy_requests_total{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency percentiles",
+      "id": 2,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "${datasource}",
+      "description": "Quantiles estimated from histogram buckets, so they are bucket-boundary accurate rather than exact.",
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(proxy_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(proxy_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(proxy_request_duration_seconds_bucket{instance=~\"$instance\"}[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Error rate",
+      "id": 3,
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 8 },
+      "datasource": "${datasource}",
+      "description": "Share of requests ending in an upstream or proxy error. Blocked and rate-limited requests are policy decisions, not errors, and are excluded.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(proxy_requests_total{instance=~\"$instance\",outcome=~\"upstream_error|proxy_error\"}[5m])) / clamp_min(sum(rate(proxy_requests_total{instance=~\"$instance\"}[5m])), 0.001)",
+          "legendFormat": "error rate"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Cache hit ratio",
+      "id": 4,
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 8 },
+      "datasource": "${datasource}",
+      "description": "Hits over hits plus misses. Requests that never consulted the cache are excluded.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.2 },
+              { "color": "green", "value": 0.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(proxy_cache_events_total{instance=~\"$instance\",result=\"hit\"}[5m])) / clamp_min(sum(rate(proxy_cache_events_total{instance=~\"$instance\",result=~\"hit|miss|store\"}[5m])), 0.001)",
+          "legendFormat": "hit ratio"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Active connections",
+      "id": 5,
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 8 },
+      "datasource": "${datasource}",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(proxy_active_connections{instance=~\"$instance\"})",
+          "legendFormat": "active"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Adaptive rate limit",
+      "id": 6,
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 8 },
+      "datasource": "${datasource}",
+      "description": "Current fill rate of the adaptive token bucket. Drops when upstream latency rises.",
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(proxy_adaptive_rate_limit{instance=~\"$instance\"})",
+          "legendFormat": "req/s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cache outcomes",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": "${datasource}",
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (rate(proxy_cache_events_total{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "{{result}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bytes transferred",
+      "id": 8,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "datasource": "${datasource}",
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (direction) (rate(proxy_bytes_total{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "{{direction}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Upstream errors and admission queue",
+      "id": 9,
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 21 },
+      "datasource": "${datasource}",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(proxy_upstream_errors_total{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "upstream {{kind}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(proxy_scheduler_queued{instance=~\"$instance\"})",
+          "legendFormat": "queued for admission"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["proxy", "http"]
+}

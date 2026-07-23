@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: proxy
+    metrics_path: /metrics
+    static_configs:
+      # Each instance is scraped directly rather than through nginx.
+      # Scraping via the load balancer would hit a random backend each
+      # time and produce a meaningless blend of three counters.
+      - targets:
+          - proxy1:9100
+          - proxy2:9100
+          - proxy3:9100
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "([^:]+):.*"
+        target_label: instance
+        replacement: "$1"
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

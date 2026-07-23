@@ -1,9 +1,17 @@
-# The proxy itself (proxy_server/) runs on the standard library alone.
-# Everything below is for the optional extras.
+# The proxy core (proxy_server/) runs on the standard library alone.
+# Every dependency below is optional: the proxy starts and serves
+# traffic without any of them, losing only the corresponding feature.
 
-# dashboard/ - Flask + SocketIO metrics UI
+# Response cache. Without it, HTTPCache reports "not installed" and the
+# proxy runs cache-free.
+redis>=4.6.0
+
+# Prometheus /metrics endpoint. Without it, Telemetry becomes a no-op.
+prometheus-client>=0.17.0
+
+# dashboard/ - Flask + SocketIO metrics UI, a separate process.
 Flask>=3.0
 Flask-SocketIO>=5.3
 
-# proxy_server/client_simulation.py - load-generator script
+# proxy_server/client_simulation.py - load-generator script.
 requests>=2.31.0

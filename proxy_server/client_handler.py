@@ -15,6 +15,7 @@ from proxy_server.http_parser import (
 )
 from proxy_server.logger import ProxyLogger
 from proxy_server.metrics import MetricsLogger
+from proxy_server.netutil import set_nodelay
 from proxy_server.scheduler import estimate_priority
 
 RATE_LIMIT_REQUESTS = 200
@@ -54,7 +55,9 @@ class ClientHandler:
         metrics_logger: MetricsLogger,
         logger: ProxyLogger,
         rate_controller=None,
+        rate_limit_requests: int = RATE_LIMIT_REQUESTS,
     ) -> None:
+        self.rate_limit_requests = rate_limit_requests
         self.client_socket = client_socket
         self.client_address = client_address
         self.client_ip, self.client_port = client_address
@@ -79,6 +82,7 @@ class ClientHandler:
         In the None case the socket has been closed here.
         """
         self.client_socket.settimeout(CLIENT_READ_TIMEOUT_SECONDS)
+        set_nodelay(self.client_socket)
         try:
             request_data = self._recv_http_request()
             if not request_data:
@@ -148,7 +152,8 @@ class ClientHandler:
             # Adaptive admission control. The check above enforces a
             # per-client policy; this one sheds load when the upstream is
             # already slow, so the proxy degrades instead of queueing.
-            if self.rate_controller is not None and not self.rate_controller.allow_request():
+            if (self.rate_controller is not None
+                    and not self.rate_controller.allow_request()):
                 latency_ms = int((time.time() - request_start_time) * 1000)
                 response_size = self._send_service_unavailable()
                 self._log_blocked_request(
@@ -234,6 +239,10 @@ class ClientHandler:
 
     def _is_rate_limited(self, client_ip: str, host: str) -> bool:
         """Return True when a client exceeds the configured request rate for a host."""
+        # 0 disables the limit entirely; benchmarks need to measure the
+        # proxy rather than the policy.
+        if self.rate_limit_requests <= 0:
+            return False
         normalized_host = (host or "").strip().lower().strip(".")
         if not normalized_host or is_whitelisted(normalized_host):
             return False
@@ -243,7 +252,7 @@ class ClientHandler:
         with _rate_limit_lock:
             timestamps = _rate_limit_by_client_host.get(key, [])
             timestamps = [ts for ts in timestamps if ts >= window_start]
-            if len(timestamps) >= RATE_LIMIT_REQUESTS:
+            if len(timestamps) >= self.rate_limit_requests:
                 _rate_limit_by_client_host[key] = timestamps
                 return True
             timestamps.append(now)
@@ -306,6 +315,7 @@ class ClientHandler:
             with socket.create_connection(
                 (target_host, target_port), timeout=10
             ) as upstream_socket:
+                set_nodelay(upstream_socket)
                 upstream_socket.sendall(request_bytes)
                 self.logger.info(
                     "Forwarded request_type=%s client_id=%s host=%s:%s",
@@ -378,7 +388,10 @@ class ClientHandler:
         response_size = 0
 
         try:
-            with socket.create_connection((target_host, target_port), timeout=10) as upstream_socket:
+            with socket.create_connection(
+                (target_host, target_port), timeout=10
+            ) as upstream_socket:
+                set_nodelay(upstream_socket)
                 self.client_socket.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 self.logger.info(
                     "Established request_type=CONNECT client_id=%s host=%s:%s",
@@ -416,7 +429,7 @@ class ClientHandler:
             if bracket_end == -1:
                 return "", 0
             host = value[1:bracket_end]
-            remainder = value[bracket_end + 1 :]
+            remainder = value[bracket_end + 1:]
             if not remainder.startswith(":"):
                 return "", 0
             port_str = remainder[1:]

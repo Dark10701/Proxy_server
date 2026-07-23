@@ -36,7 +36,9 @@ class ProxyServer:
         worker_count: int = 16,
         queue_size: int = 256,
         adaptive_rate_limit: bool = True,
+        rate_limit_requests: int = 200,
     ) -> None:
+        self.rate_limit_requests = rate_limit_requests
         self.host = host
         self.port = port
         self.blocked_domains_path = blocked_domains_path
@@ -64,6 +66,7 @@ class ProxyServer:
             metrics_logger=self.metrics_logger,
             logger=self.logger,
             rate_controller=self.rate_controller,
+            rate_limit_requests=self.rate_limit_requests,
         )
 
     def _read_stage(self, connection) -> Optional[Tuple[int, ClientHandler]]:

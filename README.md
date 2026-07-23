@@ -105,6 +105,38 @@ python -m pytest
 
 <!--BENCHMARKS-->
 
+Full methodology, environment, per-concurrency tables and the caveats that matter are in [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md). **Read the caveats before quoting any figure** — these come from a single laptop with a Python load generator that is itself a ceiling.
+
+Measured on Windows-10-10.0.26200-SP0, 8 cores, Python 3.11.4. Each cell is the median of 3 runs of 10s.
+
+**Peak sustained throughput** (each build at the concurrency where it peaks):
+
+| | Peak req/s | at concurrency |
+|---|---:|---:|
+| Load generator ceiling (no proxy) | 621.7 | 400 |
+| Threaded build | 233.7 | 100 |
+| Async build | **311.6** | 50 |
+
+**Head to head at concurrency 50** (same load, so latency is comparable):
+
+| | req/s | p50 | p95 | p99 |
+|---|---:|---:|---:|---:|
+| Threaded | 217.7 | 226.02 ms | 321.98 ms | 369.0 ms |
+| Async | **311.6** | 151.85 ms | 188.34 ms | 221.47 ms |
+
+At the same offered load the async build serves **+43%** more requests per second with a **40% lower p99**. Peak-to-peak the gain is +33%. Both remain well below the 621.7 req/s the generator reaches with no proxy in the path, so the proxy — not the client — is what is being measured.
+
+**Cache hit vs no cache**, async build at concurrency 100. Identical URL and origin in both arms; the only variable is whether the cache is enabled.
+
+| | req/s | p50 | p95 | p99 |
+|---|---:|---:|---:|---:|
+| Cache disabled | 280.1 | 326.34 ms | 508.69 ms | 588.36 ms |
+| Serving cache hits | **417.2** | 214.04 ms | 340.66 ms | 382.18 ms |
+
+Serving from cache is **+49%** on throughput with a **35% lower p99**. The cache arm talks to a minimal RESP server rather than real Redis, which could not be installed on the benchmark machine — over a real socket with the real client, so this is a pessimistic bound rather than an optimistic one.
+
+<!--/BENCHMARKS-->
+
 ## Design decisions
 
 **asyncio over threads.** The original design allocated a thread per connection. A proxy is almost entirely I/O wait — it holds a client socket open while waiting on an upstream — so those threads were spending their lives blocked, each carrying a stack and a scheduling slot. Under an event loop the same waiting costs a suspended coroutine. The threaded build is still present behind `--mode threaded` rather than deleted, because a performance claim you cannot re-run is not evidence; both builds ship from one codebase so they can be measured under identical conditions.
@@ -132,6 +164,7 @@ python -m pytest
 - **HTTPS is tunnelled, not inspected.** `CONNECT` traffic is opaque, so filtering applies to the target host only, and the cache never sees it. There is no TLS interception.
 - **Filtering is exact-domain and substring-keyword.** No regex, no wildcards beyond subdomain matching, no PAC files.
 - **No HTTP/2 or HTTP/3**, upstream or downstream.
+- **The async accept loop shares the event loop with request handling.** Under a burst of short-lived connections the listen backlog can fill faster than it drains, and clients see connection refusals — measured at concurrency 400 in the benchmark sweep. The threaded build has a dedicated accept thread and does not show this. Moving accept to its own loop or process would fix it; that work has not been done.
 - **Benchmarked on a single machine** with a Python load generator, which is itself a measurable ceiling. See the methodology notes in `benchmarks/RESULTS.md` before quoting any figure.
 - **The compose stack is a local development topology.** Grafana ships with default credentials and Redis has no auth; neither is fit to expose beyond localhost as configured.
 

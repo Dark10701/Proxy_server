@@ -45,13 +45,62 @@ def parse_args(argv=None) -> argparse.Namespace:
         default=str(paths.DEFAULT_ERROR_LOG),
         help="Path to error log file",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("async", "threaded"),
+        default="async",
+        help=(
+            "Concurrency model. 'async' is the current implementation; "
+            "'threaded' is the legacy build, kept so the two can be "
+            "benchmarked under identical conditions (default: async)"
+        ),
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=256,
+        help="Async mode: requests served upstream at once (default: 256)",
+    )
+    parser.add_argument(
+        "--max-queued",
+        type=int,
+        default=512,
+        help="Async mode: requests allowed to wait for a slot (default: 512)",
+    )
     return parser.parse_args(argv)
 
 
-def main() -> None:
-    """Start the proxy server and print quick operator hints."""
-    args = parse_args()
+def run_async(args) -> None:
+    """Run the asyncio implementation."""
+    import asyncio
 
+    from proxy_server.async_server import AsyncProxyServer
+
+    server = AsyncProxyServer(
+        host=args.host,
+        port=args.port,
+        blocked_domains_path=args.blocked_domains,
+        metrics_path=args.metrics,
+        access_log_path=args.access_log,
+        error_log_path=args.error_log,
+        max_concurrent=args.max_concurrent,
+        max_queued=args.max_queued,
+    )
+
+    async def _main() -> None:
+        try:
+            await server.serve_forever()
+        finally:
+            await server.stop()
+
+    try:
+        asyncio.run(_main())
+    except KeyboardInterrupt:
+        print("\nShutting down.")
+
+
+def run_threaded(args) -> None:
+    """Run the legacy thread-pool implementation."""
     server = ProxyServer(
         host=args.host,
         port=args.port,
@@ -60,14 +109,24 @@ def main() -> None:
         access_log_path=args.access_log,
         error_log_path=args.error_log,
     )
-
-    print(f"Proxy running on {args.host}:{args.port}")
-    print(f"Metrics CSV: {args.metrics}")
     try:
         server.start()
     except KeyboardInterrupt:
         print("\nShutting down.")
         server.stop()
+
+
+def main() -> None:
+    """Start the proxy server and print quick operator hints."""
+    args = parse_args()
+
+    print(f"Proxy running on {args.host}:{args.port} ({args.mode} mode)")
+    print(f"Metrics CSV: {args.metrics}")
+
+    if args.mode == "async":
+        run_async(args)
+    else:
+        run_threaded(args)
 
 
 if __name__ == "__main__":

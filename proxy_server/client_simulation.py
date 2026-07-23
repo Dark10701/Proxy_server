@@ -21,6 +21,7 @@ TARGET_URLS = [
     "http://iana.org/",
 ]
 
+
 @dataclass
 class GlobalMetrics:
     total_requests: int = 0
@@ -49,6 +50,7 @@ def record_result(status_code: int | None, latency_ms: float | None, errored: bo
         if latency_ms is not None:
             metrics.latencies_ms.append(latency_ms)
 
+
 def client_worker(client_id: int, proxies: dict[str, str]) -> None:
     session = requests.Session()
     session.proxies.update(proxies)
@@ -73,7 +75,8 @@ def client_worker(client_id: int, proxies: dict[str, str]) -> None:
         time.sleep(random.uniform(*SLEEP_BETWEEN_REQUESTS_RANGE))
 
     session.close()
-    
+
+
 def print_summary(duration_seconds: float) -> None:
     with metrics_lock:
         latencies = list(metrics.latencies_ms)
@@ -83,7 +86,11 @@ def print_summary(duration_seconds: float) -> None:
         errors = metrics.errors
 
     avg_latency = statistics.mean(latencies) if latencies else 0.0
-    p95_latency = statistics.quantiles(latencies, n=20)[18] if len(latencies) >= 20 else max(latencies, default=0.0)
+    p95_latency = (
+        statistics.quantiles(latencies, n=20)[18]
+        if len(latencies) >= 20
+        else max(latencies, default=0.0)
+    )
 
     print("\n" + "=" * 56)
     print("Proxy Client Simulation Summary")

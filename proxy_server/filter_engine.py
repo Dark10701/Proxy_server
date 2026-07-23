@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List
 
+
 class FilterEngine:
     def __init__(self, blocked_domains_path: str) -> None:
         self.blocked_domains_path = Path(blocked_domains_path)

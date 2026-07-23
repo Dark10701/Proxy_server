@@ -38,6 +38,7 @@ class AsyncProxyServer:
         redis_url: str = "redis://127.0.0.1:6379/0",
         metrics_port: Optional[int] = 9100,
         health_port: Optional[int] = 8081,
+        rate_limit_requests: int = 200,
     ) -> None:
         self.host = host
         self.port = port
@@ -46,7 +47,7 @@ class AsyncProxyServer:
         self.metrics_path = metrics_path
 
         self.metrics_logger: Optional[AsyncMetricsLogger] = None
-        self.rate_limiter = AsyncRateLimiter()
+        self.rate_limiter = AsyncRateLimiter(limit=rate_limit_requests)
         self.scheduler = AsyncScheduler(
             max_concurrent=max_concurrent, max_queued=max_queued
         )

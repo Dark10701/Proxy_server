@@ -9,7 +9,7 @@ rather than treated as an error.
 import csv
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 # How many of the most recent requests feed the latency chart and table.
 RECENT_WINDOW = 100

@@ -1,0 +1,447 @@
+{
+  "environment": {
+    "python": "3.11.4",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 142 Stepping 10, GenuineIntel",
+    "cpu_count": 8,
+    "timestamp": "2026-07-23 18:37:15 India Standard Time"
+  },
+  "runs": [
+    {
+      "label": "origin-direct",
+      "target": "origin-direct",
+      "concurrency": 1,
+      "duration_s": 10.0,
+      "requests": 6704,
+      "ok_200": 6704,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 6704
+      },
+      "rps": 670.3,
+      "ok_rps": 670.3,
+      "throughput_mib_s": 0.73,
+      "latency_ms": {
+        "mean": 1.48,
+        "p50": 1.42,
+        "p95": 1.85,
+        "p99": 2.19,
+        "max": 3.63
+      }
+    },
+    {
+      "label": "origin-direct",
+      "target": "origin-direct",
+      "concurrency": 10,
+      "duration_s": 10.01,
+      "requests": 5992,
+      "ok_200": 5992,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 5992
+      },
+      "rps": 598.5,
+      "ok_rps": 598.5,
+      "throughput_mib_s": 0.65,
+      "latency_ms": {
+        "mean": 16.67,
+        "p50": 12.97,
+        "p95": 27.89,
+        "p99": 37.52,
+        "max": 417.85
+      }
+    },
+    {
+      "label": "origin-direct",
+      "target": "origin-direct",
+      "concurrency": 50,
+      "duration_s": 10.03,
+      "requests": 5803,
+      "ok_200": 5803,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 5803
+      },
+      "rps": 578.6,
+      "ok_rps": 578.6,
+      "throughput_mib_s": 0.63,
+      "latency_ms": {
+        "mean": 86.29,
+        "p50": 84.02,
+        "p95": 119.21,
+        "p99": 132.48,
+        "max": 157.12
+      }
+    },
+    {
+      "label": "origin-direct",
+      "target": "origin-direct",
+      "concurrency": 100,
+      "duration_s": 10.03,
+      "requests": 7900,
+      "ok_200": 7900,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 7900
+      },
+      "rps": 787.7,
+      "ok_rps": 787.7,
+      "throughput_mib_s": 0.85,
+      "latency_ms": {
+        "mean": 126.79,
+        "p50": 117.87,
+        "p95": 155.61,
+        "p99": 355.71,
+        "max": 370.22
+      }
+    },
+    {
+      "label": "origin-direct",
+      "target": "origin-direct",
+      "concurrency": 200,
+      "duration_s": 10.12,
+      "requests": 4925,
+      "ok_200": 4925,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 4925
+      },
+      "rps": 486.9,
+      "ok_rps": 486.9,
+      "throughput_mib_s": 0.53,
+      "latency_ms": {
+        "mean": 409.01,
+        "p50": 396.69,
+        "p95": 618.0,
+        "p99": 809.14,
+        "max": 896.68
+      }
+    },
+    {
+      "label": "origin-direct",
+      "target": "origin-direct",
+      "concurrency": 400,
+      "duration_s": 10.38,
+      "requests": 4499,
+      "ok_200": 4499,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 4499
+      },
+      "rps": 433.5,
+      "ok_rps": 433.5,
+      "throughput_mib_s": 0.47,
+      "latency_ms": {
+        "mean": 903.47,
+        "p50": 561.42,
+        "p95": 2586.13,
+        "p99": 2715.23,
+        "max": 2822.15
+      }
+    },
+    {
+      "label": "proxy-threaded",
+      "target": "proxy",
+      "concurrency": 1,
+      "duration_s": 10.01,
+      "requests": 525,
+      "ok_200": 525,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 525
+      },
+      "rps": 52.4,
+      "ok_rps": 52.4,
+      "throughput_mib_s": 0.06,
+      "latency_ms": {
+        "mean": 19.04,
+        "p50": 15.9,
+        "p95": 31.64,
+        "p99": 33.64,
+        "max": 35.64
+      }
+    },
+    {
+      "label": "proxy-threaded",
+      "target": "proxy",
+      "concurrency": 10,
+      "duration_s": 10.04,
+      "requests": 2358,
+      "ok_200": 2358,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 2358
+      },
+      "rps": 234.9,
+      "ok_rps": 234.9,
+      "throughput_mib_s": 0.25,
+      "latency_ms": {
+        "mean": 42.45,
+        "p50": 39.46,
+        "p95": 59.85,
+        "p99": 126.22,
+        "max": 532.37
+      }
+    },
+    {
+      "label": "proxy-threaded",
+      "target": "proxy",
+      "concurrency": 50,
+      "duration_s": 10.18,
+      "requests": 2166,
+      "ok_200": 2166,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 2166
+      },
+      "rps": 212.7,
+      "ok_rps": 212.7,
+      "throughput_mib_s": 0.23,
+      "latency_ms": {
+        "mean": 232.82,
+        "p50": 224.27,
+        "p95": 288.36,
+        "p99": 512.98,
+        "max": 656.07
+      }
+    },
+    {
+      "label": "proxy-threaded",
+      "target": "proxy",
+      "concurrency": 100,
+      "duration_s": 10.34,
+      "requests": 2804,
+      "ok_200": 2804,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 2804
+      },
+      "rps": 271.1,
+      "ok_rps": 271.1,
+      "throughput_mib_s": 0.29,
+      "latency_ms": {
+        "mean": 362.71,
+        "p50": 359.53,
+        "p95": 418.28,
+        "p99": 433.57,
+        "max": 470.83
+      }
+    },
+    {
+      "label": "proxy-threaded",
+      "target": "proxy",
+      "concurrency": 200,
+      "duration_s": 10.62,
+      "requests": 2891,
+      "ok_200": 2891,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 2891
+      },
+      "rps": 272.3,
+      "ok_rps": 272.3,
+      "throughput_mib_s": 0.29,
+      "latency_ms": {
+        "mean": 712.97,
+        "p50": 696.7,
+        "p95": 826.78,
+        "p99": 841.07,
+        "max": 891.05
+      }
+    },
+    {
+      "label": "proxy-threaded",
+      "target": "proxy",
+      "concurrency": 400,
+      "duration_s": 10.97,
+      "requests": 3736,
+      "ok_200": 2298,
+      "non_200": 1438,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "malformed": 136,
+        "200": 2298,
+        "503": 1302
+      },
+      "rps": 340.7,
+      "ok_rps": 209.5,
+      "throughput_mib_s": 0.24,
+      "latency_ms": {
+        "mean": 1112.25,
+        "p50": 1290.58,
+        "p95": 1855.31,
+        "p99": 1890.09,
+        "max": 1921.33
+      }
+    },
+    {
+      "label": "proxy-async",
+      "target": "proxy",
+      "concurrency": 1,
+      "duration_s": 10.0,
+      "requests": 1024,
+      "ok_200": 1024,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 1024
+      },
+      "rps": 102.4,
+      "ok_rps": 102.4,
+      "throughput_mib_s": 0.11,
+      "latency_ms": {
+        "mean": 9.72,
+        "p50": 8.62,
+        "p95": 15.69,
+        "p99": 28.27,
+        "max": 118.68
+      }
+    },
+    {
+      "label": "proxy-async",
+      "target": "proxy",
+      "concurrency": 10,
+      "duration_s": 10.02,
+      "requests": 2812,
+      "ok_200": 2812,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 2812
+      },
+      "rps": 280.7,
+      "ok_rps": 280.7,
+      "throughput_mib_s": 0.3,
+      "latency_ms": {
+        "mean": 35.58,
+        "p50": 33.57,
+        "p95": 43.73,
+        "p99": 57.57,
+        "max": 220.84
+      }
+    },
+    {
+      "label": "proxy-async",
+      "target": "proxy",
+      "concurrency": 50,
+      "duration_s": 10.19,
+      "requests": 2952,
+      "ok_200": 2952,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 2952
+      },
+      "rps": 289.6,
+      "ok_rps": 289.6,
+      "throughput_mib_s": 0.31,
+      "latency_ms": {
+        "mean": 171.46,
+        "p50": 153.12,
+        "p95": 257.83,
+        "p99": 346.66,
+        "max": 386.3
+      }
+    },
+    {
+      "label": "proxy-async",
+      "target": "proxy",
+      "concurrency": 100,
+      "duration_s": 10.27,
+      "requests": 3129,
+      "ok_200": 3129,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 3129
+      },
+      "rps": 304.8,
+      "ok_rps": 304.8,
+      "throughput_mib_s": 0.33,
+      "latency_ms": {
+        "mean": 324.15,
+        "p50": 309.44,
+        "p95": 419.81,
+        "p99": 438.19,
+        "max": 446.73
+      }
+    },
+    {
+      "label": "proxy-async",
+      "target": "proxy",
+      "concurrency": 200,
+      "duration_s": 10.53,
+      "requests": 3541,
+      "ok_200": 3541,
+      "non_200": 0,
+      "errors": 0,
+      "error_kinds": {},
+      "statuses": {
+        "200": 3541
+      },
+      "rps": 336.1,
+      "ok_rps": 336.1,
+      "throughput_mib_s": 0.36,
+      "latency_ms": {
+        "mean": 580.37,
+        "p50": 587.77,
+        "p95": 656.95,
+        "p99": 678.4,
+        "max": 681.31
+      }
+    },
+    {
+      "label": "proxy-async",
+      "target": "proxy",
+      "concurrency": 400,
+      "duration_s": 11.73,
+      "requests": 3411,
+      "ok_200": 3411,
+      "non_200": 0,
+      "errors": 360,
+      "error_kinds": {
+        "refused": 360
+      },
+      "statuses": {
+        "200": 3411
+      },
+      "rps": 290.8,
+      "ok_rps": 290.8,
+      "throughput_mib_s": 0.31,
+      "latency_ms": {
+        "mean": 1056.81,
+        "p50": 822.26,
+        "p95": 2591.83,
+        "p99": 2931.1,
+        "max": 3105.47
+      }
+    }
+  ]
+}

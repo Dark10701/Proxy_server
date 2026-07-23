@@ -79,6 +79,23 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Port for the Prometheus /metrics endpoint (0 disables)",
     )
     parser.add_argument(
+        "--rate-limit-requests",
+        type=int,
+        default=200,
+        help="Per client+host requests per minute; 0 disables (default: 200)",
+    )
+    parser.add_argument(
+        "--no-adaptive-rate-limit",
+        action="store_true",
+        help="Disable the adaptive rate controller (used for benchmarking)",
+    )
+    parser.add_argument(
+        "--health-port",
+        type=int,
+        default=8081,
+        help="Port for /health and /ready (0 disables)",
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         help="Disable the response cache entirely",
@@ -104,6 +121,9 @@ def run_async(args) -> None:
         cache_enabled=not args.no_cache,
         redis_url=args.redis_url,
         metrics_port=args.metrics_port or None,
+        health_port=args.health_port or None,
+        rate_limit_requests=args.rate_limit_requests,
+        adaptive_rate_limit=not args.no_adaptive_rate_limit,
     )
 
     async def _main() -> None:
@@ -127,6 +147,8 @@ def run_threaded(args) -> None:
         metrics_path=args.metrics,
         access_log_path=args.access_log,
         error_log_path=args.error_log,
+        rate_limit_requests=args.rate_limit_requests,
+        adaptive_rate_limit=not args.no_adaptive_rate_limit,
     )
     try:
         server.start()

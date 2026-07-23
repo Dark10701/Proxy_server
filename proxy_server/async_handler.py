@@ -47,6 +47,7 @@ from proxy_server.observability import (
     OUTCOME_TUNNELLED,
     OUTCOME_UPSTREAM_ERROR,
 )
+from proxy_server.netutil import set_nodelay
 from proxy_server.scheduler import estimate_priority
 
 CLIENT_READ_TIMEOUT_SECONDS = 10.0
@@ -72,6 +73,9 @@ class AsyncRateLimiter:
         self._hits: Dict[Tuple[str, str], List[float]] = {}
 
     def is_limited(self, client_ip: str, host: str) -> bool:
+        # 0 disables the limit entirely.
+        if self._limit <= 0:
+            return False
         normalised = (host or "").strip().lower().strip(".")
         if not normalised or is_whitelisted(normalised):
             return False
@@ -125,6 +129,8 @@ class AsyncClientHandler:
         self.rate_limiter = rate_limiter
         self.scheduler = scheduler
         self.rate_controller = rate_controller
+
+        set_nodelay(writer.get_extra_info("socket"))
 
         peer = writer.get_extra_info("peername") or ("unknown", 0)
         self.client_ip, self.client_port = peer[0], peer[1]
@@ -390,6 +396,8 @@ class AsyncClientHandler:
                 self.telemetry.record_upstream_error("connect_failed")
             self._telemetry_request(method, OUTCOME_UPSTREAM_ERROR, received_at)
             return
+
+        set_nodelay(upstream_writer.get_extra_info("socket"))
 
         response_bytes = 0
         # Buffer only while the response is still small enough to store;

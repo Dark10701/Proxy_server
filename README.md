@@ -4,6 +4,31 @@ An asyncio forward proxy with domain filtering, adaptive load shedding, a Redis-
 
 [![CI](https://github.com/Dark10701/Proxy_server/actions/workflows/ci.yml/badge.svg)](https://github.com/Dark10701/Proxy_server/actions/workflows/ci.yml)
 
+## Highlights
+
+Every figure below is reproducible from this repository — see
+[`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) for the methodology and the
+caveats that bound each one.
+
+- **Re-architected** a thread-per-connection proxy into an **asyncio** event-loop
+  design: **+43% throughput** (312 vs 218 req/s) and **40% lower p99 latency**
+  (221 ms vs 369 ms) at 50 concurrent connections, in a single process. The
+  threaded build is retained behind `--mode threaded` so both can be measured
+  under identical conditions.
+- **Built an RFC 9111-aware HTTP response cache** on Redis honouring
+  `Cache-Control`, `s-maxage` and `Expires` with per-entry TTLs and hit/miss
+  accounting: **+49% throughput** and **35% lower p99** when serving hits.
+  Verified shared across instances — two replicas served hits for content only
+  a third had fetched.
+- **Instrumented with Prometheus** (latency histograms, request/error counters
+  by outcome, bytes, active connections, cache hit ratio) surfaced through a
+  provisioned **Grafana** dashboard.
+- **Containerised** as a `docker compose` stack behind **nginx** layer-4 load
+  balancing across three instances, with readiness-based draining:
+  **0 dropped requests measured** across an instance restart under load.
+- **Hardened**: 0 → **118 tests** with CI on Python 3.9/3.11/3.12, plus lint,
+  compose validation and a Docker build-and-smoke job.
+
 ---
 
 ## Architecture
